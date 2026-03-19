@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  cybersentinel:
+    build: .
+    container_name: cybersentinel
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./reports:/app/reports
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
