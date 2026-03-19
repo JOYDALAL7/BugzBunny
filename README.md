@@ -11,7 +11,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Version](https://img.shields.io/badge/Version-2.0.0-orange?style=for-the-badge)
 
-**BugzBunny is a modular, async offensive security automation framework built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, REST API, Docker support, async parallel scanning, and beautiful HTML reports.**
+**BugzBunny is a modular, async offensive security automation framework built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, REST API, Docker support, async parallel scanning, professional PDF reports, and diff tracking.**
 
 </div>
 
@@ -32,8 +32,9 @@
 | 🔎 CVE Lookup | `NVD API` | Map services to known CVEs |
 | 🔐 JS Secrets | `custom` | Extract API keys & tokens from JS files |
 | 🌍 CORS Check | `custom` | Detect CORS misconfigurations |
-| 📊 HTML Reporting | `jinja2` | Beautiful dark-themed reports |
-| 🗄️ Database Storage | `SQLite` | Persist scan history |
+| 📊 HTML Report | `jinja2` | Beautiful dark-themed HTML report |
+| 📄 PDF Report | `weasyprint` | Professional white A4 PDF report |
+| 🗄️ Database | `SQLite` | Persist all scan findings |
 | 🔄 Diff Reports | `custom` | Track new findings between scans |
 | ⚡ Async Scanning | `asyncio` | Parallel module execution (10x faster) |
 | 🌐 REST API | `FastAPI` | Programmatic scan control + Swagger UI |
@@ -69,6 +70,9 @@ docker-compose up -d
 
 ### CLI
 ```bash
+# Activate venv
+source venv/bin/activate
+
 # Basic scan
 python main.py scan --target hackerone.com
 
@@ -114,7 +118,7 @@ Phase 4  →  ┌─────────────────────
              └─────────────────────────────────┘
 Phase 5  →  Database Storage (SQLite)
 Phase 6  →  Diff Report (new findings)
-Phase 7  →  HTML Report Generation
+Phase 7  →  HTML + PDF Report Generation
 ```
 
 ---
@@ -123,7 +127,8 @@ Phase 7  →  HTML Report Generation
 ```
 reports/
 └── target.com/
-    ├── target.com_report.html    ← HTML report
+    ├── target.com_report.html    ← Dark-themed HTML report
+    ├── target.com_report.pdf     ← Professional A4 PDF report
     ├── bugzbunny.db              ← SQLite database
     ├── diff_report.json          ← Changes since last scan
     ├── previous_scan.json        ← Baseline for diff
@@ -181,13 +186,6 @@ Finding → id, scan_id, module, type, title, description, data
 
 ---
 
-## 📸 Report Preview
-
-> Dark-themed HTML report with stats dashboard, subdomains, open ports,
-> WAF info, vulnerabilities, CVEs, JS secrets and CORS issues.
-
----
-
 ## ⚠️ Legal Disclaimer
 
 > BugzBunny is intended for **authorized security testing only**.
@@ -205,9 +203,10 @@ Finding → id, scan_id, module, type, title, description, data
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+MIT License
 
 ---
 
 <div align="center">
+Made with ❤️ by Joy Dalal | Hop. Hunt. Hack. 🐰
 </div>

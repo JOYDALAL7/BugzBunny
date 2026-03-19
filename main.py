@@ -2,6 +2,7 @@ import click
 import os
 import asyncio
 from rich.console import Console
+from rich.rule import Rule
 from core.banner import show_banner
 from core.async_runner import run_async, run_parallel
 from modules.subdomain import run_subfinder
@@ -18,6 +19,7 @@ from modules.cors import run_cors
 from core.reporter import generate_report
 from core.database import init_db, create_scan, save_finding, complete_scan
 from core.diff import generate_diff
+from core.pdf_export import export_pdf
 
 console = Console()
 
@@ -36,7 +38,7 @@ def scan(target, output):
 async def _scan(target, output):
     """Async scan pipeline"""
 
-    # Organized folder structure
+    # Folder structure
     output_dir = os.path.join(output, target)
     raw_dir    = os.path.join(output_dir, "raw")
     temp_dir   = os.path.join(output_dir, "temp")
@@ -47,32 +49,45 @@ async def _scan(target, output):
     os.makedirs(temp_dir,   exist_ok=True)
     os.makedirs(fuzz_dir,   exist_ok=True)
 
-    console.print(f"[bold green][*] Target:[/] {target}")
-    console.print(f"[bold green][*] Output:[/] {output_dir}")
+    # Scan header
+    console.print(Rule(style="red"))
+    console.print(f"  [bold white]Target  [/]: [cyan]{target}[/]")
+    console.print(f"  [bold white]Output  [/]: [cyan]{output_dir}[/]")
 
     # Initialize Database
     db_path = init_db(output_dir)
     scan_record = create_scan(target)
-    console.print(f"[bold green][*] Database:[/] {db_path}")
+    console.print(f"  [bold white]Database[/]: [cyan]{db_path}[/]")
+    console.print(Rule(style="red"))
 
-    # Phase 2: Subdomains (must run first)
+    # ──────────────────────────────────────────
+    # Phase 1: Subdomain Enumeration
+    # ──────────────────────────────────────────
+    console.print("\n[bold red][ Phase 1 ][/] [white]Subdomain Enumeration[/]")
     subdomains = await run_async(run_subfinder, target, raw_dir, temp_dir)
     if not subdomains:
-        console.print(f"[yellow][~] No subdomains found, using target directly[/]")
+        console.print("[yellow]  → No subdomains found, using target directly[/]")
         subdomains = [target]
     for sub in subdomains:
         save_finding(scan_record, "subdomain", "info", sub, data={"subdomain": sub})
 
-    # Phase 3: Live Hosts (must run after subdomains)
+    # ──────────────────────────────────────────
+    # Phase 2: Live Host Detection
+    # ──────────────────────────────────────────
+    console.print("\n[bold red][ Phase 2 ][/] [white]Live Host Detection[/]")
     live_hosts = await run_async(run_httpx, subdomains, target, raw_dir, temp_dir)
     if not live_hosts:
-        console.print(f"[yellow][~] Using target as live host directly[/]")
+        console.print("[yellow]  → No live hosts found, using target directly[/]")
         live_hosts = [f"http://{target}"]
     for host in live_hosts:
         save_finding(scan_record, "livehosts", "info", host, data={"url": host})
 
-    # Phase 4-8: Run in parallel
-    console.print(f"[bold cyan][*] Running parallel scans...[/]")
+    # ──────────────────────────────────────────
+    # Phase 3: Parallel Recon
+    # ──────────────────────────────────────────
+    console.print("\n[bold red][ Phase 3 ][/] [white]Running Parallel Recon...[/]")
+    console.print("[dim]  → Port Scan | Fuzzing | Fingerprint | WAF | Takeover | JS Secrets | CORS[/]")
+
     results = await run_parallel([
         run_async(run_nmap,       live_hosts, target, raw_dir),
         run_async(run_ffuf,       live_hosts, target, fuzz_dir),
@@ -114,8 +129,12 @@ async def _scan(target, output):
                 description=finding.get("acao", ""),
                 data=finding)
 
-    # Phase 9-10: Run in parallel
-    console.print(f"[bold cyan][*] Running vulnerability scans...[/]")
+    # ──────────────────────────────────────────
+    # Phase 4: Vulnerability Scanning
+    # ──────────────────────────────────────────
+    console.print("\n[bold red][ Phase 4 ][/] [white]Running Vulnerability Scans...[/]")
+    console.print("[dim]  → Nuclei Scan | CVE Lookup[/]")
+
     vuln_cve = await run_parallel([
         run_async(run_nuclei,     live_hosts, target, raw_dir, temp_dir),
         run_async(run_cve_lookup, tech_results, port_results, target, raw_dir),
@@ -140,16 +159,36 @@ async def _scan(target, output):
                 description=cve.get("description", ""),
                 data=cve)
 
-    # Complete scan
+    # ──────────────────────────────────────────
+    # Phase 5: Save & Report
+    # ──────────────────────────────────────────
+    console.print("\n[bold red][ Phase 5 ][/] [white]Saving Results & Generating Reports...[/]")
+
     complete_scan(scan_record)
-    console.print(f"[bold green][+] Scan saved to database![/]")
+    console.print("[green]  → Scan saved to database[/]")
 
-    # Phase 19: Diff Report
-    diff_results = generate_diff(target, output_dir)
+    generate_diff(target, output_dir)
+    console.print("[green]  → Diff report generated[/]")
 
-    # Phase 11: Generate HTML Report
     generate_report(target, output_dir, subdomains, live_hosts,
                     port_results, waf_results, vuln_results, cve_results)
+    console.print("[green]  → HTML report generated[/]")
+
+    export_pdf(target, output_dir)
+    console.print("[green]  → PDF report generated[/]")
+
+    # Final summary
+    console.print(Rule(style="red"))
+    console.print(f"\n  [bold white]Scan Complete![/] 🐰")
+    console.print(f"  [bold white]Subdomains [/]: [cyan]{len(subdomains)}[/]")
+    console.print(f"  [bold white]Live Hosts [/]: [cyan]{len(live_hosts)}[/]")
+    console.print(f"  [bold white]Open Ports [/]: [cyan]{sum(len(v) for v in port_results.values())}[/]")
+    console.print(f"  [bold white]JS Secrets [/]: [cyan]{sum(len(v) for v in js_results.values())}[/]")
+    console.print(f"  [bold white]CORS Issues[/]: [cyan]{sum(len(v) for v in cors_results.values())}[/]")
+    console.print(f"  [bold white]Vulns Found[/]: [cyan]{sum(len(v) for v in vuln_results.values())}[/]")
+    console.print(f"  [bold white]CVEs Found [/]: [cyan]{sum(len(v) for v in cve_results.values())}[/]")
+    console.print(f"  [bold white]Report     [/]: [cyan]{output_dir}/{target}_report.html[/]")
+    console.print(Rule(style="red"))
 
 if __name__ == '__main__':
     cli()

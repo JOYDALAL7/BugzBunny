@@ -11,69 +11,176 @@ HTML_TEMPLATE = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BugzBunny Report - {{ target }}</title>
     <style>
+        @page {
+            margin: 2cm;
+            size: A4;
+            @bottom-center {
+                content: "BugzBunny v2.0.0 | Hop. Hunt. Hack. | Page " counter(page);
+                font-size: 9px;
+                color: #999;
+            }
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; }
-        .header { background: linear-gradient(135deg, #1a1a2e, #16213e); padding: 40px; border-bottom: 2px solid #e94560; }
-        .header h1 { color: #e94560; font-size: 2.5em; }
-        .header p { color: #888; margin-top: 5px; }
-        .stats { display: flex; gap: 20px; padding: 30px 40px; flex-wrap: wrap; }
-        .stat-card { background: #1a1a2e; border-radius: 10px; padding: 20px 30px; flex: 1; min-width: 150px; border-left: 4px solid #e94560; }
-        .stat-card h2 { font-size: 2em; color: #e94560; }
-        .stat-card p { color: #888; font-size: 0.9em; }
-        .section { padding: 20px 40px; margin-bottom: 10px; }
-        .section h2 { color: #e94560; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 15px; }
-        table { width: 100%; border-collapse: collapse; background: #1a1a2e; border-radius: 8px; overflow: hidden; }
-        th { background: #16213e; color: #e94560; padding: 12px 15px; text-align: left; }
-        td { padding: 10px 15px; border-bottom: 1px solid #222; font-size: 0.9em; }
-        tr:hover { background: #16213e; }
-        .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
-        .critical { background: #ff000033; color: #ff4444; }
-        .high { background: #ff660033; color: #ff6600; }
-        .medium { background: #ffaa0033; color: #ffaa00; }
-        .low { background: #00ff0033; color: #00cc00; }
-        .safe { background: #00ff0033; color: #00cc00; }
-        .danger { background: #ff000033; color: #ff4444; }
-        .footer { text-align: center; padding: 30px; color: #444; border-top: 1px solid #222; margin-top: 30px; }
+        body { font-family: Arial, sans-serif; background: #ffffff; color: #1a1a1a; font-size: 11px; }
+
+        /* ── Cover Header ── */
+        .header {
+            background: #1a1a2e;
+            color: white;
+            padding: 30px 40px;
+            border-bottom: 4px solid #e94560;
+            margin-bottom: 20px;
+        }
+        .header h1 { font-size: 24px; color: #e94560; margin-bottom: 5px; }
+        .header .meta { color: #aaa; font-size: 11px; }
+        .header .meta span { color: white; font-weight: bold; }
+
+        /* ── Stats Row ── */
+        .stats {
+            display: flex;
+            gap: 10px;
+            margin: 0 0 20px 0;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            flex: 1;
+            min-width: 80px;
+            background: #f8f8f8;
+            border-left: 4px solid #e94560;
+            border-radius: 4px;
+            padding: 12px 15px;
+        }
+        .stat-card .num { font-size: 22px; font-weight: bold; color: #e94560; }
+        .stat-card .label { font-size: 9px; color: #666; margin-top: 2px; }
+
+        /* ── Section ── */
+        .section { margin-bottom: 20px; page-break-inside: avoid; }
+        .section-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: #1a1a2e;
+            border-bottom: 2px solid #e94560;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+        }
+
+        /* ── Tables ── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+            table-layout: fixed;
+        }
+        th {
+            background: #1a1a2e;
+            color: #e94560;
+            padding: 8px 10px;
+            text-align: left;
+            font-size: 10px;
+        }
+        td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #eee;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            vertical-align: top;
+        }
+        tr:nth-child(even) { background: #f9f9f9; }
+
+        /* ── Badges ── */
+        .badge {
+            padding: 2px 7px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .critical { background: #ffe0e0; color: #cc0000; border: 1px solid #cc0000; }
+        .high     { background: #fff0e0; color: #cc6600; border: 1px solid #cc6600; }
+        .medium   { background: #fffbe0; color: #997700; border: 1px solid #997700; }
+        .low      { background: #e0ffe0; color: #006600; border: 1px solid #006600; }
+
+        /* ── Summary Box ── */
+        .summary-box {
+            background: #f0f0f0;
+            border-left: 4px solid #1a1a2e;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            font-size: 10px;
+        }
+        .summary-box p { margin: 3px 0; }
+        .summary-box strong { color: #1a1a2e; }
+
+        /* ── Footer ── */
+        .footer {
+            text-align: center;
+            padding: 15px;
+            color: #999;
+            border-top: 1px solid #ddd;
+            margin-top: 20px;
+            font-size: 9px;
+        }
+
+        .page-break { page-break-before: always; }
     </style>
 </head>
 <body>
+
+    <!-- Header -->
     <div class="header">
-        <h1>🐰 BugzBunny Report</h1>
-        <p>Target: <strong>{{ target }}</strong> | Generated: {{ timestamp }}</p>
+        <h1>🐰 BugzBunny Security Report</h1>
+        <div class="meta">
+            Target: <span>{{ target }}</span> &nbsp;|&nbsp;
+            Generated: <span>{{ timestamp }}</span> &nbsp;|&nbsp;
+            Tool: <span>BugzBunny v2.0.0</span>
+        </div>
     </div>
 
     <!-- Stats -->
     <div class="stats">
         <div class="stat-card">
-            <h2>{{ subdomains|length }}</h2>
-            <p>Subdomains Found</p>
+            <div class="num">{{ subdomains|length }}</div>
+            <div class="label">Subdomains</div>
         </div>
         <div class="stat-card">
-            <h2>{{ live_hosts|length }}</h2>
-            <p>Live Hosts</p>
+            <div class="num">{{ live_hosts|length }}</div>
+            <div class="label">Live Hosts</div>
         </div>
         <div class="stat-card">
-            <h2>{{ total_ports }}</h2>
-            <p>Open Ports</p>
+            <div class="num">{{ total_ports }}</div>
+            <div class="label">Open Ports</div>
         </div>
         <div class="stat-card">
-            <h2>{{ total_vulns }}</h2>
-            <p>Vulnerabilities</p>
+            <div class="num">{{ total_vulns }}</div>
+            <div class="label">Vulnerabilities</div>
         </div>
         <div class="stat-card">
-            <h2>{{ total_cves }}</h2>
-            <p>CVEs Found</p>
+            <div class="num">{{ total_cves }}</div>
+            <div class="label">CVEs Found</div>
+        </div>
+    </div>
+
+    <!-- Executive Summary -->
+    <div class="section">
+        <div class="section-title">📋 Executive Summary</div>
+        <div class="summary-box">
+            <p><strong>Target:</strong> {{ target }}</p>
+            <p><strong>Scan Date:</strong> {{ timestamp }}</p>
+            <p><strong>Subdomains Discovered:</strong> {{ subdomains|length }}</p>
+            <p><strong>Live Hosts:</strong> {{ live_hosts|length }}</p>
+            <p><strong>Open Ports:</strong> {{ total_ports }}</p>
+            <p><strong>Vulnerabilities Found:</strong> {{ total_vulns }}</p>
+            <p><strong>CVEs Identified:</strong> {{ total_cves }}</p>
         </div>
     </div>
 
     <!-- Subdomains -->
     <div class="section">
-        <h2>📡 Subdomains</h2>
+        <div class="section-title">📡 Subdomain Enumeration</div>
         <table>
-            <tr><th>Subdomain</th></tr>
+            <tr><th style="width:100%">Subdomain</th></tr>
             {% for sub in subdomains %}
             <tr><td>{{ sub }}</td></tr>
             {% endfor %}
@@ -82,14 +189,19 @@ HTML_TEMPLATE = """
 
     <!-- Live Hosts -->
     <div class="section">
-        <h2>🌐 Live Hosts</h2>
+        <div class="section-title">🌐 Live Hosts</div>
         <table>
+            <colgroup>
+                <col style="width:55%">
+                <col style="width:15%">
+                <col style="width:30%">
+            </colgroup>
             <tr><th>URL</th><th>Status</th><th>WAF</th></tr>
             {% for host in live_hosts %}
             <tr>
                 <td>{{ host.split()[0] }}</td>
                 <td>{{ host.split()[1] if host.split()|length > 1 else 'N/A' }}</td>
-                <td>{{ waf.get(host.split()[0], 'Unknown') }}</td>
+                <td>{{ waf.get(host.split()[0], 'Not Detected') }}</td>
             </tr>
             {% endfor %}
         </table>
@@ -97,8 +209,13 @@ HTML_TEMPLATE = """
 
     <!-- Port Scan -->
     <div class="section">
-        <h2>🔌 Open Ports</h2>
+        <div class="section-title">🔌 Open Ports</div>
         <table>
+            <colgroup>
+                <col style="width:60%">
+                <col style="width:15%">
+                <col style="width:25%">
+            </colgroup>
             <tr><th>Host</th><th>Port</th><th>Service</th></tr>
             {% for host, ports in port_scan.items() %}
                 {% for port in ports %}
@@ -113,27 +230,45 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Vulnerabilities -->
-    <div class="section">
-        <h2>⚠️ Vulnerabilities</h2>
+    <div class="section page-break">
+        <div class="section-title">⚠️ Vulnerabilities</div>
         <table>
+            <colgroup>
+                <col style="width:12%">
+                <col style="width:28%">
+                <col style="width:30%">
+                <col style="width:30%">
+            </colgroup>
             <tr><th>Severity</th><th>Name</th><th>Host</th><th>Matched At</th></tr>
-            {% for sev in ['critical', 'high', 'medium'] %}
+            {% set has_vulns = false %}
+            {% for sev in ['critical', 'high', 'medium', 'low'] %}
                 {% for vuln in vulnerabilities.get(sev, []) %}
+                {% set has_vulns = true %}
                 <tr>
-                    <td><span class="badge {{ sev }}">{{ sev.upper() }}</span></td>
+                    <td><span class="badge {{ sev }}">{{ sev }}</span></td>
                     <td>{{ vuln.name }}</td>
                     <td>{{ vuln.host }}</td>
                     <td>{{ vuln.matched }}</td>
                 </tr>
                 {% endfor %}
             {% endfor %}
+            {% if total_vulns == 0 %}
+            <tr><td colspan="4" style="text-align:center; color:#999; padding:15px;">No vulnerabilities found</td></tr>
+            {% endif %}
         </table>
     </div>
 
     <!-- CVEs -->
     <div class="section">
-        <h2>🔍 CVE Findings</h2>
+        <div class="section-title">🔍 CVE Findings</div>
         <table>
+            <colgroup>
+                <col style="width:14%">
+                <col style="width:17%">
+                <col style="width:7%">
+                <col style="width:10%">
+                <col style="width:52%">
+            </colgroup>
             <tr><th>Technology</th><th>CVE ID</th><th>Score</th><th>Severity</th><th>Description</th></tr>
             {% for tech, cves in cve_data.items() %}
                 {% for cve in cves %}
@@ -142,16 +277,20 @@ HTML_TEMPLATE = """
                     <td>{{ cve.id }}</td>
                     <td>{{ cve.score }}</td>
                     <td><span class="badge {{ cve.severity.lower() if cve.severity != 'N/A' else 'low' }}">{{ cve.severity }}</span></td>
-                    <td>{{ cve.description[:100] }}...</td>
+                    <td>{{ cve.description[:150] }}...</td>
                 </tr>
                 {% endfor %}
             {% endfor %}
+            {% if total_cves == 0 %}
+            <tr><td colspan="5" style="text-align:center; color:#999; padding:15px;">No CVEs found</td></tr>
+            {% endif %}
         </table>
     </div>
 
     <div class="footer">
-        <p>Generated by BugzBunny v2.0.0 | Hop. Hunt. Hack. | For authorized testing only</p>
+        Generated by BugzBunny v2.0.0 | Hop. Hunt. Hack. | For authorized testing only | {{ timestamp }}
     </div>
+
 </body>
 </html>
 """
