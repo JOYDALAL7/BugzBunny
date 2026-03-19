@@ -11,7 +11,6 @@ def run_nuclei(live_hosts: list, target: str, raw_dir: str, temp_dir: str) -> di
         console.print("[red][-] No live hosts to scan[/]")
         return {}
 
-    # Temp files go in temp_dir
     tmp_file = f"{temp_dir}/hosts.txt"
     clean_hosts = [h.split()[0] for h in live_hosts]
     with open(tmp_file, "w") as f:
@@ -25,20 +24,26 @@ def run_nuclei(live_hosts: list, target: str, raw_dir: str, temp_dir: str) -> di
                 [
                     "nuclei",
                     "-l", tmp_file,
-                    "-severity", "critical,high,medium",
+                    "-severity", "critical,high,medium,low",
                     "-o", nuclei_raw,
                     "-je",
                     "-silent",
-                    "-rate-limit", "50",
-                    "-timeout", "5",
-                    "-retries", "0",
-                    "-max-host-error", "3",
-                    "-tags", "exposures,misconfiguration,cve,xss,sqli,lfi",
-                    "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    "-rl", "20",
+                    "-timeout", "10",
+                    "-retries", "1",
+                    "-max-host-error", "5",
+                    "-duc",
+                    "-nm",
+                    "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    # Use specific fast templates
+                    "-t", "http/technologies/",
+                    "-t", "http/exposures/",
+                    "-t", "http/misconfiguration/",
+                    "-t", "http/vulnerabilities/",
                 ],
                 capture_output=True,
                 text=True,
-                timeout=180
+                timeout=600  # 10 minutes
             )
         except subprocess.TimeoutExpired:
             console.print("[yellow][~] Nuclei timed out, continuing...[/]")
@@ -57,18 +62,19 @@ def run_nuclei(live_hosts: list, target: str, raw_dir: str, temp_dir: str) -> di
     # Organize by severity
     summary = {
         "critical": [],
-        "high": [],
-        "medium": []
+        "high":     [],
+        "medium":   [],
+        "low":      []
     }
 
     for f in findings:
-        sev = f.get("info", {}).get("severity", "medium").lower()
+        sev = f.get("info", {}).get("severity", "low").lower()
         if sev in summary:
             summary[sev].append({
-                "name": f.get("info", {}).get("name"),
-                "host": f.get("host"),
+                "name":    f.get("info", {}).get("name"),
+                "host":    f.get("host"),
                 "matched": f.get("matched-at"),
-                "tags": f.get("info", {}).get("tags", [])
+                "tags":    f.get("info", {}).get("tags", [])
             })
 
     # Save structured results
@@ -76,13 +82,14 @@ def run_nuclei(live_hosts: list, target: str, raw_dir: str, temp_dir: str) -> di
     with open(structured_file, "w") as f:
         json.dump({
             "target": target,
-            "total": len(findings),
+            "total":  len(findings),
             "vulnerabilities": summary
         }, f, indent=2)
 
     # Display summary
-    console.print(f"[bold red][!] Critical: {len(summary['critical'])}[/]")
-    console.print(f"[bold yellow][!] High:     {len(summary['high'])}[/]")
-    console.print(f"[bold blue][!] Medium:   {len(summary['medium'])}[/]")
+    console.print(f"[bold red][!]    Critical : {len(summary['critical'])}[/]")
+    console.print(f"[bold yellow][!] High     : {len(summary['high'])}[/]")
+    console.print(f"[bold blue][!]   Medium   : {len(summary['medium'])}[/]")
+    console.print(f"[bold green][!]  Low      : {len(summary['low'])}[/]")
     console.print(f"[green][+] Nuclei scan complete → {structured_file}[/]")
     return summary

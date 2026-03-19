@@ -1,5 +1,6 @@
 import subprocess
 import json
+import os
 from rich.console import Console
 
 console = Console()
@@ -11,7 +12,16 @@ def run_ffuf(live_hosts: list, target: str, fuzz_dir: str) -> dict:
         console.print("[red][-] No live hosts to fuzz[/]")
         return {}
 
-    wordlist = "/usr/share/wordlists/dirb/common.txt"
+    # Pick best available wordlist
+    wordlists = [
+        "/usr/share/wordlists/dirb/big.txt",
+        "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt",
+        "/usr/share/wordlists/dirb/common.txt"
+    ]
+    wordlist = next((w for w in wordlists if os.path.exists(w)),
+                    "/usr/share/wordlists/dirb/common.txt")
+
+    console.print(f"[dim][*] Using wordlist: {wordlist}[/]")
     all_results = {}
 
     for host in live_hosts:
@@ -30,16 +40,19 @@ def run_ffuf(live_hosts: list, target: str, fuzz_dir: str) -> dict:
                         "-w", wordlist,
                         "-o", out_file,
                         "-of", "json",
-                        "-t", "40",
-                        "-mc", "200,201,301,302,403",
+                        "-t", "50",
+                        "-mc", "200,201,204,301,302,307,401,403,405",
                         "-timeout", "10",
                         "-silent",
+                        "-fc", "429,404",
+                        "-fs", "0",
                         "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        "-H", "X-Forwarded-For: 127.0.0.1"
+                        "-H", "Accept: text/html,application/xhtml+xml,*/*;q=0.8",
+                        "-H", "Accept-Language: en-US,en;q=0.5",
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=300
+                    timeout=180
                 )
         except subprocess.TimeoutExpired:
             console.print(f"[yellow][~] Fuzzing timed out for {url}, skipping...[/]")
@@ -58,12 +71,16 @@ def run_ffuf(live_hosts: list, target: str, fuzz_dir: str) -> dict:
             findings = []
 
         all_results[url] = findings
-        console.print(f"[green][+] {url} → {len(findings)} paths found[/]")
+        if findings:
+            console.print(f"[bold green][+] {url} → {len(findings)} paths found![/]")
+        else:
+            console.print(f"[green][+] {url} → 0 paths found[/]")
 
     # Save summary
     summary_file = f"{fuzz_dir}/fuzzing_summary.json"
     with open(summary_file, "w") as f:
         json.dump({"target": target, "fuzzing": all_results}, f, indent=2)
 
-    console.print(f"[green][+] Fuzzing complete → {summary_file}[/]")
+    total = sum(len(v) for v in all_results.values())
+    console.print(f"[green][+] Fuzzing complete → {total} total paths → {summary_file}[/]")
     return all_results

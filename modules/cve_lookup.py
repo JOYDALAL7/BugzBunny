@@ -9,6 +9,7 @@ console = Console()
 NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 VALID_TECH_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9\-\_\.]+$')
 
+# Expanded blacklist including HTTP headers
 BLACKLIST = {
     "http", "https", "www", "unknown", "frame", "title", "script",
     "via-proxy", "redirectlocation", "poweredby", "country", "us",
@@ -17,12 +18,20 @@ BLACKLIST = {
     "see", "meta", "tag", "manager", "analytics", "strict",
     "transport", "security", "cdn-cgi", "cgi", "cookie", "header",
     "redirect", "location", "charset", "encoding", "viewport",
-    "robots", "sitemap", "favicon", "icon", "apple", "google"
+    "robots", "sitemap", "favicon", "icon", "apple", "google",
+    # HTTP headers (new)
+    "x-frame-options", "x-xss-protection", "x-ua-compatible",
+    "x-powered-by", "x-content-type", "x-forwarded",
+    "content-security", "content-type", "content-length",
+    "cache-control", "access-control", "metagenerator",
+    "meta-refresh-redirect", "httpserver", "amazon-cloudfront",
+    "google-analytics", "google-tag-manager", "open-graph",
+    "twitter-cards", "schema-org", "json-ld", "microdata"
 }
 
 COMMON_TLDS = [".com", ".org", ".net", ".io", ".gov", ".edu", ".co", ".hackerone"]
 
-# Only look up known real tech names
+# Strict whitelist of known vulnerable technologies
 KNOWN_TECHS = {
     "nginx", "apache", "iis", "tomcat", "wordpress", "drupal", "joomla",
     "jquery", "react", "angular", "vue", "laravel", "django", "rails",
@@ -30,15 +39,24 @@ KNOWN_TECHS = {
     "mysql", "postgresql", "mongodb", "redis", "elasticsearch",
     "cloudflare", "fastly", "akamai", "varnish", "squid",
     "openssl", "openssh", "proftpd", "vsftpd", "sendmail",
-    "bootstrap", "webpack", "typescript", "graphql", "next"
+    "bootstrap", "webpack", "typescript", "graphql", "next",
+    "jenkins", "gitlab", "jira", "confluence", "struts",
+    "spring", "log4j", "jackson", "lodash", "moment",
+    "axios", "express", "koa", "hapi", "fastify",
+    "sqlite", "mariadb", "cassandra", "memcached",
+    "rabbitmq", "kafka", "nginx", "haproxy", "traefik"
 }
 
 def is_valid_tech(name: str) -> bool:
     """Filter out garbage technology names"""
     name_lower = name.strip().lower()
+
     if not name_lower or len(name_lower) < 3:
         return False
     if name_lower in BLACKLIST:
+        return False
+    # Block anything with hyphen that looks like HTTP header
+    if "-" in name_lower and name_lower not in KNOWN_TECHS:
         return False
     if not VALID_TECH_PATTERN.match(name_lower):
         return False
@@ -48,8 +66,8 @@ def is_valid_tech(name: str) -> bool:
         return False
     if re.search(r'\.\d+', name_lower):
         return False
-    # Must be a known tech OR start with capital (real product name)
-    if name_lower not in KNOWN_TECHS and not name[0].isupper():
+    # Must be in known techs whitelist
+    if name_lower not in KNOWN_TECHS:
         return False
     return True
 
@@ -95,7 +113,6 @@ def lookup_cve(service: str) -> list:
     except Exception as e:
         console.print(f"[red][-] CVE lookup failed for {service}: {e}[/]")
         return []
-
 
 def run_cve_lookup(tech_results: dict, port_results: dict, target: str, raw_dir: str) -> dict:
     """Run CVE lookup for detected technologies and services"""

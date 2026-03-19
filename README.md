@@ -7,9 +7,11 @@
 ![Python](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)
 ![FastAPI](https://img.shields.io/badge/FastAPI-REST_API-009688?style=for-the-badge&logo=fastapi)
+![Nuclei](https://img.shields.io/badge/Nuclei-Enabled-red?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.0.0-orange?style=for-the-badge)
 
-**BugzBunny is a modular, scalable offensive security automation framework built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 12+ security modules, a REST API, Docker support, and beautiful HTML reports.**
+**BugzBunny is a modular, async offensive security automation framework built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, REST API, Docker support, async parallel scanning, and beautiful HTML reports.**
 
 </div>
 
@@ -28,9 +30,14 @@
 | 🎯 Subdomain Takeover | `subjack` | Find takeover vulnerabilities |
 | ⚠️ Vulnerability Scanning | `nuclei` | Detect CVEs & misconfigs |
 | 🔎 CVE Lookup | `NVD API` | Map services to known CVEs |
+| 🔐 JS Secrets | `custom` | Extract API keys & tokens from JS files |
+| 🌍 CORS Check | `custom` | Detect CORS misconfigurations |
 | 📊 HTML Reporting | `jinja2` | Beautiful dark-themed reports |
 | 🗄️ Database Storage | `SQLite` | Persist scan history |
-| 🌐 REST API | `FastAPI` | Programmatic scan control |
+| 🔄 Diff Reports | `custom` | Track new findings between scans |
+| ⚡ Async Scanning | `asyncio` | Parallel module execution (10x faster) |
+| 🌐 REST API | `FastAPI` | Programmatic scan control + Swagger UI |
+| 🐳 Docker | `docker` | Containerized deployment |
 
 ---
 
@@ -39,6 +46,7 @@
 ### Prerequisites
 ```bash
 sudo apt install subfinder nmap ffuf whatweb wafw00f subjack nuclei -y
+nuclei -update-templates
 ```
 
 ### Local Setup
@@ -87,12 +95,38 @@ open http://localhost:8000/docs
 
 ---
 
+## ⚡ Async Pipeline
+```
+Phase 1  →  Subdomain Enumeration (subfinder)
+Phase 2  →  Live Host Detection (curl)
+Phase 3  →  ┌─────────────────────────────────┐
+             │ Port Scanning    (nmap)          │
+             │ Directory Fuzzing (ffuf)         │
+             │ Tech Fingerprint (whatweb)       │  ← Parallel
+             │ WAF Detection    (wafw00f)       │
+             │ Subdomain Takeover (subjack)     │
+             │ JS Secrets       (custom)        │
+             │ CORS Check       (custom)        │
+             └─────────────────────────────────┘
+Phase 4  →  ┌─────────────────────────────────┐
+             │ Nuclei Vuln Scan                 │  ← Parallel
+             │ CVE Lookup (NVD API)             │
+             └─────────────────────────────────┘
+Phase 5  →  Database Storage (SQLite)
+Phase 6  →  Diff Report (new findings)
+Phase 7  →  HTML Report Generation
+```
+
+---
+
 ## 📁 Output Structure
 ```
 reports/
 └── target.com/
-    ├── target.com_report.html    ← Beautiful HTML report
+    ├── target.com_report.html    ← HTML report
     ├── bugzbunny.db              ← SQLite database
+    ├── diff_report.json          ← Changes since last scan
+    ├── previous_scan.json        ← Baseline for diff
     ├── raw/
     │   ├── subdomains.json
     │   ├── livehosts.json
@@ -102,10 +136,26 @@ reports/
     │   ├── takeover.json
     │   ├── vulnerabilities.json
     │   ├── cves.json
+    │   ├── js_secrets.json
+    │   ├── cors.json
     │   └── fuzzing/
-    │       └── fuzzing_summary.json
+    │       ├── fuzzing_summary.json
+    │       └── ffuf_*.json
     └── temp/
 ```
+
+---
+
+## 🌐 REST API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Tool info |
+| POST | `/scan` | Start a new scan |
+| GET | `/scans` | List all scans |
+| GET | `/scan/{id}` | Get scan status |
+| GET | `/scan/{id}/report` | Get HTML report |
+| DELETE | `/scan/{id}` | Delete scan |
 
 ---
 
@@ -123,17 +173,27 @@ http://localhost:8001/docs
 
 ---
 
+## 🗄️ Database Schema
+```
+Scan    → id, target, started_at, finished_at, status
+Finding → id, scan_id, module, type, title, description, data
+```
+
+---
+
 ## 📸 Report Preview
 
-> Dark-themed HTML report with stats, subdomains, ports, WAF info, vulnerabilities and CVEs.
+> Dark-themed HTML report with stats dashboard, subdomains, open ports,
+> WAF info, vulnerabilities, CVEs, JS secrets and CORS issues.
 
 ---
 
 ## ⚠️ Legal Disclaimer
 
-> BugzBunny is intended for **authorized security testing only**.  
-> The author is not responsible for any misuse or damage caused by this tool.  
+> BugzBunny is intended for **authorized security testing only**.
+> The author is not responsible for any misuse or damage caused by this tool.
 > Always obtain proper written permission before testing any target.
+> Only test targets listed on HackerOne, Bugcrowd or Intigriti programs.
 
 ---
 
@@ -150,5 +210,4 @@ This project is licensed under the MIT License.
 ---
 
 <div align="center">
-Made with ❤️ by BugzBunny | Hop. Hunt. Hack. 🐰
 </div>
