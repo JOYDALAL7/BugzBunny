@@ -16,6 +16,25 @@
 
 ---
 
+## 📸 Screenshots
+
+### Tool Banner
+![Banner](assets/banner.png)
+
+### CLI Execution
+![CLI](assets/cli.png)
+
+### Attack Chain Detection (Core Feature)
+![Attack Chain](assets/attack_chain.png)
+
+### HTML Report (Dashboard)
+![Report](assets/report.png)
+
+### Structured Telemetry Logs
+![Logs](assets/logs.png)
+
+---
+
 ## Overview
 
 Most recon tools dump raw output. BugzBunny **correlates findings** across modules, scores risk using a CVSS-inspired formula, and surfaces exploitable attack paths with step-by-step chains.
