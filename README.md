@@ -9,9 +9,9 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-REST_API-009688?style=for-the-badge&logo=fastapi)
 ![Nuclei](https://img.shields.io/badge/Nuclei-Enabled-red?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-2.0.0-orange?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.1.0-orange?style=for-the-badge)
 
-**BugzBunny is a modular, async offensive security automation framework built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, REST API, Docker support, async parallel scanning, professional PDF reports, and diff tracking.**
+**BugzBunny is a modular, async offensive security intelligence platform built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, a custom risk correlation engine, REST API, Docker support, structured JSON telemetry, and professional PDF reports.**
 
 </div>
 
@@ -21,7 +21,7 @@
 
 | Module | Tool | Description |
 |--------|------|-------------|
-| 🔍 Subdomain Enumeration | `subfinder` | Discover subdomains passively |
+| 🔍 Subdomain Enumeration | `subfinder` | Passive subdomain discovery |
 | 🌐 Live Host Detection | `curl` | Filter alive hosts |
 | 🔌 Port Scanning | `nmap` | Detect open ports & services |
 | 📁 Directory Fuzzing | `ffuf` | Brute force hidden paths |
@@ -30,15 +30,49 @@
 | 🎯 Subdomain Takeover | `subjack` | Find takeover vulnerabilities |
 | ⚠️ Vulnerability Scanning | `nuclei` | Detect CVEs & misconfigs |
 | 🔎 CVE Lookup | `NVD API` | Map services to known CVEs |
-| 🔐 JS Secrets | `custom` | Extract API keys & tokens from JS files |
+| 🔐 JS Secrets | `custom` | Entropy-based secret detection |
 | 🌍 CORS Check | `custom` | Detect CORS misconfigurations |
-| 📊 HTML Report | `jinja2` | Beautiful dark-themed HTML report |
-| 📄 PDF Report | `weasyprint` | Professional white A4 PDF report |
-| 🗄️ Database | `SQLite` | Persist all scan findings |
-| 🔄 Diff Reports | `custom` | Track new findings between scans |
-| ⚡ Async Scanning | `asyncio` | Parallel module execution (10x faster) |
-| 🌐 REST API | `FastAPI` | Programmatic scan control + Swagger UI |
+| 🎲 Risk Engine | `custom` | CVSS-style attack chain scoring |
+| 📊 HTML Report | `jinja2` | Dark-themed HTML report |
+| 📄 PDF Report | `weasyprint` | Professional A4 PDF report |
+| 🗄️ Database | `SQLite` | 10-table normalized storage |
+| 🔄 Diff Reports | `custom` | Track changes between scans |
+| ⚡ Async Scanning | `asyncio` | Parallel execution (10x faster) |
+| 🌐 REST API | `FastAPI` | Programmatic control + Swagger UI |
 | 🐳 Docker | `docker` | Containerized deployment |
+| 📋 Structured Logging | `custom` | JSON telemetry per module |
+
+---
+
+## 🧠 Intelligence Layer
+
+BugzBunny is not just a tool wrapper — it has a custom intelligence layer:
+
+### Risk Correlation Engine
+```
+Findings from 16 modules → Normalized Schema → Risk Engine → Attack Chains
+
+Risk Score Formula:
+  base  = avg(severity_weight × confidence)
+  mods  = no_waf(+2.0) | has_secret(+3.0) | cors_creds(+3.5)
+          known_cve(+2.5) | waf_present(-2.0)
+  score = clamp(base + mods, 0.0, 10.0)
+```
+
+### JS Secret Detection Engine
+```
+Pattern Match → Shannon Entropy Check → False Positive Filter → Confidence Score
+entropy < 2.0  →  rejected (placeholder)
+entropy > 4.0  →  confidence boosted
+```
+
+### Structured Telemetry
+```json
+{"ts": "2026-03-20T12:01:38", "scan_id": "3b0d606f",
+ "module": "portscan", "level": "METRIC",
+ "event": "module_complete",
+ "data": {"duration_ms": 1240, "findings_count": 5}}
+```
 
 ---
 
@@ -101,24 +135,23 @@ open http://localhost:8000/docs
 
 ## ⚡ Async Pipeline
 ```
-Phase 1  →  Subdomain Enumeration (subfinder)
-Phase 2  →  Live Host Detection (curl)
-Phase 3  →  ┌─────────────────────────────────┐
-             │ Port Scanning    (nmap)          │
-             │ Directory Fuzzing (ffuf)         │
-             │ Tech Fingerprint (whatweb)       │  ← Parallel
-             │ WAF Detection    (wafw00f)       │
-             │ Subdomain Takeover (subjack)     │
-             │ JS Secrets       (custom)        │
-             │ CORS Check       (custom)        │
-             └─────────────────────────────────┘
-Phase 4  →  ┌─────────────────────────────────┐
-             │ Nuclei Vuln Scan                 │  ← Parallel
-             │ CVE Lookup (NVD API)             │
-             └─────────────────────────────────┘
-Phase 5  →  Database Storage (SQLite)
-Phase 6  →  Diff Report (new findings)
-Phase 7  →  HTML + PDF Report Generation
+Phase 1    →  Subdomain Enumeration (subfinder)
+Phase 2    →  Live Host Detection (curl)
+Phase 3    →  ┌──────────────────────────────────────┐
+               │ Port Scanning    (nmap)               │
+               │ Directory Fuzzing (ffuf)              │
+               │ Tech Fingerprint  (whatweb)           │  ← Parallel
+               │ WAF Detection     (wafw00f)           │
+               │ Subdomain Takeover (subjack)          │
+               │ JS Secrets        (custom engine)     │
+               │ CORS Check        (custom)            │
+               └──────────────────────────────────────┘
+Phase 4    →  ┌──────────────────────────────────────┐
+               │ Nuclei Vuln Scan                      │  ← Parallel
+               │ CVE Lookup (NVD API)                  │
+               └──────────────────────────────────────┘
+Phase 4.5  →  Risk Correlation & Scoring Engine
+Phase 5    →  Database + Diff + HTML + PDF Reports
 ```
 
 ---
@@ -129,9 +162,11 @@ reports/
 └── target.com/
     ├── target.com_report.html    ← Dark-themed HTML report
     ├── target.com_report.pdf     ← Professional A4 PDF report
-    ├── bugzbunny.db              ← SQLite database
+    ├── bugzbunny.db              ← SQLite database (10 tables)
     ├── diff_report.json          ← Changes since last scan
     ├── previous_scan.json        ← Baseline for diff
+    ├── logs/
+    │   └── <scan_id>.log         ← Structured JSON telemetry
     ├── raw/
     │   ├── subdomains.json
     │   ├── livehosts.json
@@ -143,9 +178,9 @@ reports/
     │   ├── cves.json
     │   ├── js_secrets.json
     │   ├── cors.json
+    │   ├── risk_chains.json
     │   └── fuzzing/
-    │       ├── fuzzing_summary.json
-    │       └── ffuf_*.json
+    │       └── fuzzing_summary.json
     └── temp/
 ```
 
@@ -180,8 +215,16 @@ http://localhost:8001/docs
 
 ## 🗄️ Database Schema
 ```
-Scan    → id, target, started_at, finished_at, status
-Finding → id, scan_id, module, type, title, description, data
+Scan       → id, target, started_at, finished_at, status
+Finding    → id, scan_id, module, type, title, description, data
+Target     → id, domain, first_seen, last_seen
+Host       → id, scan_id, target_id, url, ip, status_code
+Port       → id, host_id, number, protocol, service
+Technology → id, host_id, name, version, confidence
+WAFResult  → id, host_id, detected, waf_name
+Secret     → id, host_id, secret_type, match, severity
+CORSResult → id, host_id, origin, acao, credentials
+RiskChain  → id, scan_id, host_id, risk_score, title
 ```
 
 ---
