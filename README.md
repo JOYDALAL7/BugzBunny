@@ -11,7 +11,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Version](https://img.shields.io/badge/Version-2.1.0-orange?style=for-the-badge)
 
-**BugzBunny is a modular, async offensive security intelligence platform built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, a custom risk correlation engine, REST API, Docker support, structured JSON telemetry, and professional PDF reports.**
+**BugzBunny is a modular, async offensive security intelligence platform built for bug bounty hunters and penetration testers. It automates the entire recon-to-report pipeline with 16+ security modules, adaptive scan modes, a custom risk correlation engine, attack chain detection, REST API, Docker support, structured JSON telemetry, and professional PDF reports.**
 
 </div>
 
@@ -33,6 +33,7 @@
 | 🔐 JS Secrets | `custom` | Entropy-based secret detection |
 | 🌍 CORS Check | `custom` | Detect CORS misconfigurations |
 | 🎲 Risk Engine | `custom` | CVSS-style attack chain scoring |
+| 🔗 Attack Chains | `custom` | Multi-step exploitable path detection |
 | 📊 HTML Report | `jinja2` | Dark-themed HTML report |
 | 📄 PDF Report | `weasyprint` | Professional A4 PDF report |
 | 🗄️ Database | `SQLite` | 10-table normalized storage |
@@ -41,6 +42,33 @@
 | 🌐 REST API | `FastAPI` | Programmatic control + Swagger UI |
 | 🐳 Docker | `docker` | Containerized deployment |
 | 📋 Structured Logging | `custom` | JSON telemetry per module |
+| 🎛️ Scan Modes | `custom` | Passive / Stealth / Active / Aggressive |
+
+---
+
+## 🎛️ Scan Modes
+
+BugzBunny supports 4 adaptive scan modes — every module adjusts its behavior accordingly:
+```bash
+python main.py scan --target hackerone.com --mode passive
+python main.py scan --target hackerone.com --mode stealth
+python main.py scan --target hackerone.com --mode active       # default
+python main.py scan --target hackerone.com --mode aggressive
+```
+
+| Module | passive | stealth | active | aggressive |
+|--------|---------|---------|--------|------------|
+| subfinder | passive sources | slow | default | `-all` sources |
+| livehosts | https+http | https only | https+http | fast timeouts |
+| nmap | ❌ skip | `-T2` slow | `-T4 -F` | `-p- -sV` full |
+| ffuf | ❌ skip | ❌ skip | 50 threads | 100 threads |
+| whatweb | `-a1` | `-a1` | `-a1` | `-a3` |
+| wafw00f | ❌ skip | slow | normal | normal |
+| subjack | ❌ skip | 5 threads | 20 threads | 50 threads |
+| js_secrets | ❌ skip | critical only | crit+high | crit+high+med |
+| cors | ❌ skip | 1 origin | 3 origins | 5 origins |
+| nuclei | ❌ skip | crit+high | all | all+cves |
+| cve_lookup | 3 techs | 5 techs | 10 techs | 20 techs |
 
 ---
 
@@ -59,11 +87,24 @@ Risk Score Formula:
   score = clamp(base + mods, 0.0, 10.0)
 ```
 
+### Attack Chain Detection
+```
+Port → Technology → CVE → No WAF = EXPLOITABLE PATH
+
+AttackPath {
+  steps:       ["open_port:443", "tech:nginx", "cve:CVE-2021-44224", "no_waf"]
+  severity:    "critical"
+  impact:      "Unprotected host with known RCE vulnerability"
+  exploitable: true
+}
+```
+
 ### JS Secret Detection Engine
 ```
 Pattern Match → Shannon Entropy Check → False Positive Filter → Confidence Score
 entropy < 2.0  →  rejected (placeholder)
 entropy > 4.0  →  confidence boosted
+13 pattern types: AWS, GitHub, Stripe, JWT, Slack, SendGrid, Private Keys...
 ```
 
 ### Structured Telemetry
@@ -107,8 +148,12 @@ docker-compose up -d
 # Activate venv
 source venv/bin/activate
 
-# Basic scan
+# Default active scan
 python main.py scan --target hackerone.com
+
+# With scan mode
+python main.py scan --target hackerone.com --mode stealth
+python main.py scan --target hackerone.com --mode aggressive
 
 # Custom output directory
 python main.py scan --target hackerone.com --output /tmp/results
@@ -150,7 +195,7 @@ Phase 4    →  ┌────────────────────�
                │ Nuclei Vuln Scan                      │  ← Parallel
                │ CVE Lookup (NVD API)                  │
                └──────────────────────────────────────┘
-Phase 4.5  →  Risk Correlation & Scoring Engine
+Phase 4.5  →  Risk Correlation + Attack Chain Engine
 Phase 5    →  Database + Diff + HTML + PDF Reports
 ```
 
@@ -178,7 +223,7 @@ reports/
     │   ├── cves.json
     │   ├── js_secrets.json
     │   ├── cors.json
-    │   ├── risk_chains.json
+    │   ├── risk_chains.json       ← Attack chains + exploitable paths
     │   └── fuzzing/
     │       └── fuzzing_summary.json
     └── temp/
