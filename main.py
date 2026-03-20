@@ -2,12 +2,14 @@ import click
 import os
 import asyncio
 import json
+import time
 from rich.console import Console
 from rich.rule import Rule
 from core.banner import show_banner
 from core.async_runner import run_async, run_parallel
 from core.normalizer import Normalizer
 from core.risk_engine import RiskEngine
+from core.logger import create_logger
 from modules.subdomain import run_subfinder
 from modules.livehosts import run_httpx
 from modules.portscan import run_nmap
@@ -60,6 +62,9 @@ async def _scan(target, output):
     os.makedirs(temp_dir,   exist_ok=True)
     os.makedirs(fuzz_dir,   exist_ok=True)
 
+    # Initialize logger
+    logger = create_logger(target, output_dir)
+
     # Scan header
     console.print()
     console.print(Rule(style="red"))
@@ -70,10 +75,13 @@ async def _scan(target, output):
     console.print(f"  [bold white]Database[/]: [cyan]{db_path}[/]")
     console.print(Rule(style="red"))
 
+    logger.info("scanner", "pipeline_started", {"output_dir": output_dir})
+
     # ──────────────────────────────────────────
     # Phase 1: Subdomain Enumeration
     # ──────────────────────────────────────────
     phase("1", "Subdomain Enumeration")
+    t0 = time.time()
 
     subdomains = await run_async(run_subfinder, target, raw_dir, temp_dir)
     if not subdomains:
@@ -82,17 +90,24 @@ async def _scan(target, output):
     for sub in subdomains:
         save_finding(scan_record, "subdomain", "info", sub, data={"subdomain": sub})
 
+    logger.metric("subdomain", (time.time() - t0) * 1000, len(subdomains))
+    logger.info("subdomain", "enumeration_complete", {"count": len(subdomains)})
+
     # ──────────────────────────────────────────
     # Phase 2: Live Host Detection
     # ──────────────────────────────────────────
     phase("2", "Live Host Detection")
+    t0 = time.time()
 
     live_hosts = await run_async(run_httpx, subdomains, target, raw_dir, temp_dir)
     if not live_hosts:
         console.print("[yellow]  → No live hosts found, using target directly[/]")
         live_hosts = [f"http://{target}"]
+        logger.warning("livehosts", "no_hosts_found", {"fallback": f"http://{target}"})
     for host in live_hosts:
         save_finding(scan_record, "livehosts", "info", host, data={"url": host})
+
+    logger.metric("livehosts", (time.time() - t0) * 1000, len(live_hosts))
 
     # ──────────────────────────────────────────
     # Phase 3: Parallel Recon
@@ -101,6 +116,7 @@ async def _scan(target, output):
     console.print("[dim]  Modules: Port Scan | Fuzzing | Fingerprint | WAF | Takeover | JS Secrets | CORS[/]")
     console.print()
 
+    t0 = time.time()
     results = await run_parallel([
         run_async(run_nmap,       live_hosts, target, raw_dir),
         run_async(run_ffuf,       live_hosts, target, fuzz_dir),
@@ -118,6 +134,17 @@ async def _scan(target, output):
     takeover_results = results[4] if not isinstance(results[4], Exception) else {}
     js_results       = results[5] if not isinstance(results[5], Exception) else {}
     cors_results     = results[6] if not isinstance(results[6], Exception) else {}
+
+    # Log errors for failed modules
+    for i, (name, result) in enumerate(zip(
+        ["nmap", "ffuf", "whatweb", "wafw00f", "subjack", "js_secrets", "cors"],
+        results
+    )):
+        if isinstance(result, Exception):
+            logger.error(name, "module_failed", {"error": str(result)})
+
+    logger.metric("parallel_recon", (time.time() - t0) * 1000,
+                  sum(len(v) for v in port_results.values()))
 
     # Save port findings
     for host, ports in port_results.items():
@@ -149,6 +176,7 @@ async def _scan(target, output):
     console.print("[dim]  Modules: Nuclei Scan | CVE Lookup[/]")
     console.print()
 
+    t0 = time.time()
     vuln_cve = await run_parallel([
         run_async(run_nuclei,     live_hosts, target, raw_dir, temp_dir),
         run_async(run_cve_lookup, tech_results, port_results, target, raw_dir),
@@ -156,6 +184,12 @@ async def _scan(target, output):
 
     vuln_results = vuln_cve[0] if not isinstance(vuln_cve[0], Exception) else {}
     cve_results  = vuln_cve[1] if not isinstance(vuln_cve[1], Exception) else {}
+
+    total_vulns = sum(len(v) for v in vuln_results.values())
+    total_cves  = sum(len(v) for v in cve_results.values())
+
+    logger.metric("vuln_scan", (time.time() - t0) * 1000, total_vulns)
+    logger.info("cve_lookup", "lookup_complete", {"cves_found": total_cves})
 
     # Save vuln findings
     for sev, vulns in vuln_results.items():
@@ -177,6 +211,7 @@ async def _scan(target, output):
     # Phase 4.5: Risk Correlation Engine
     # ──────────────────────────────────────────
     phase("4.5", "Risk Correlation & Scoring")
+    t0 = time.time()
 
     normalizer   = Normalizer()
     all_findings = normalizer.normalize_all(
@@ -189,6 +224,13 @@ async def _scan(target, output):
     )
 
     risk_chains = RiskEngine(all_findings).run()
+
+    logger.metric("risk_engine", (time.time() - t0) * 1000, len(risk_chains))
+    logger.info("risk_engine", "scoring_complete", {
+        "total_findings": len(all_findings),
+        "chains":         len(risk_chains),
+        "top_score":      risk_chains[0].risk_score if risk_chains else 0.0
+    })
 
     console.print(f"  [dim]Analyzed {len(all_findings)} findings across {len(risk_chains)} hosts[/]")
     console.print()
@@ -237,6 +279,14 @@ async def _scan(target, output):
     export_pdf(target, output_dir)
     console.print("  [green]✓ PDF report generated[/]")
 
+    logger.info("scanner", "pipeline_complete", {
+        "subdomains":  len(subdomains),
+        "live_hosts":  len(live_hosts),
+        "total_vulns": total_vulns,
+        "total_cves":  total_cves,
+        "top_risk":    risk_chains[0].risk_score if risk_chains else 0.0
+    })
+
     # Final summary
     console.print()
     console.print(Rule(style="red"))
@@ -249,9 +299,10 @@ async def _scan(target, output):
     console.print(f"  [bold white]Open Ports [/]: [cyan]{sum(len(v) for v in port_results.values())}[/]")
     console.print(f"  [bold white]JS Secrets [/]: [cyan]{sum(len(v) for v in js_results.values())}[/]")
     console.print(f"  [bold white]CORS Issues[/]: [cyan]{sum(len(v) for v in cors_results.values())}[/]")
-    console.print(f"  [bold white]Vulns Found[/]: [cyan]{sum(len(v) for v in vuln_results.values())}[/]")
-    console.print(f"  [bold white]CVEs Found [/]: [cyan]{sum(len(v) for v in cve_results.values())}[/]")
+    console.print(f"  [bold white]Vulns Found[/]: [cyan]{total_vulns}[/]")
+    console.print(f"  [bold white]CVEs Found [/]: [cyan]{total_cves}[/]")
     console.print(f"  [bold white]Risk Score [/]: [cyan]{risk_chains[0].risk_score if risk_chains else 0.0}[/]")
+    console.print(f"  [bold white]Log File   [/]: [cyan]{logger.log_file}[/]")
     console.print(f"  [bold white]Report     [/]: [cyan]{output_dir}/{target}_report.html[/]")
     console.print()
     console.print(Rule(style="red"))
