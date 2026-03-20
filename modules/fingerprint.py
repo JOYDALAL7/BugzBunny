@@ -19,19 +19,18 @@ def run_whatweb(live_hosts: list, target: str, raw_dir: str) -> dict:
         console.print(f"[cyan][*] Fingerprinting {url}[/]")
 
         try:
-            with console.status(f"[cyan]Fingerprinting {url}...[/]"):
-                result = subprocess.run(
-                    [
-                        "whatweb",
-                        "--color=never",
-                        "--log-brief=/dev/stdout",
-                        "-a", "1",
-                        url
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
+            result = subprocess.run(
+                [
+                    "whatweb",
+                    "--color=never",
+                    "--log-brief=/dev/stdout",
+                    "-a", "1",
+                    url
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
             line = result.stdout.strip()
 
         except subprocess.TimeoutExpired:

@@ -21,14 +21,23 @@ def run_wafw00f(live_hosts: list, target: str, raw_dir: str) -> dict:
 
     for host in live_hosts:
         url = host.split()[0]
+        console.print(f"[cyan][*] Detecting WAF on {url}...[/]")
 
-        with console.status(f"[cyan]Detecting WAF on {url}...[/]"):
+        try:
             result = subprocess.run(
                 ["wafw00f", url],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=30
             )
+        except subprocess.TimeoutExpired:
+            console.print(f"[yellow][~] WAF detection timed out for {url}[/]")
+            all_results[url] = "Timeout"
+            continue
+        except Exception as e:
+            console.print(f"[red][-] WAF detection failed for {url}: {e}[/]")
+            all_results[url] = "Error"
+            continue
 
         # Clean ANSI codes
         clean_output = strip_ansi(result.stdout)

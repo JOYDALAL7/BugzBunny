@@ -25,7 +25,6 @@ HTML_TEMPLATE = """
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #ffffff; color: #1a1a1a; font-size: 11px; }
 
-        /* ── Cover Header ── */
         .header {
             background: #1a1a2e;
             color: white;
@@ -37,16 +36,9 @@ HTML_TEMPLATE = """
         .header .meta { color: #aaa; font-size: 11px; }
         .header .meta span { color: white; font-weight: bold; }
 
-        /* ── Stats Row ── */
-        .stats {
-            display: flex;
-            gap: 10px;
-            margin: 0 0 20px 0;
-            flex-wrap: wrap;
-        }
+        .stats { display: flex; gap: 10px; margin: 0 0 20px 0; flex-wrap: wrap; }
         .stat-card {
-            flex: 1;
-            min-width: 80px;
+            flex: 1; min-width: 80px;
             background: #f8f8f8;
             border-left: 4px solid #e94560;
             border-radius: 4px;
@@ -55,74 +47,46 @@ HTML_TEMPLATE = """
         .stat-card .num { font-size: 22px; font-weight: bold; color: #e94560; }
         .stat-card .label { font-size: 9px; color: #666; margin-top: 2px; }
 
-        /* ── Section ── */
         .section { margin-bottom: 20px; page-break-inside: avoid; }
         .section-title {
-            font-size: 13px;
-            font-weight: bold;
-            color: #1a1a2e;
+            font-size: 13px; font-weight: bold; color: #1a1a2e;
             border-bottom: 2px solid #e94560;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
+            padding-bottom: 5px; margin-bottom: 10px;
         }
 
-        /* ── Tables ── */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 10px;
-            table-layout: fixed;
-        }
-        th {
-            background: #1a1a2e;
-            color: #e94560;
-            padding: 8px 10px;
-            text-align: left;
-            font-size: 10px;
-        }
-        td {
-            padding: 7px 10px;
-            border-bottom: 1px solid #eee;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            vertical-align: top;
-        }
+        table { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+        th { background: #1a1a2e; color: #e94560; padding: 8px 10px; text-align: left; font-size: 10px; }
+        td { padding: 7px 10px; border-bottom: 1px solid #eee; word-wrap: break-word; overflow-wrap: break-word; vertical-align: top; }
         tr:nth-child(even) { background: #f9f9f9; }
 
-        /* ── Badges ── */
-        .badge {
-            padding: 2px 7px;
-            border-radius: 3px;
-            font-size: 9px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
+        .badge { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: bold; text-transform: uppercase; }
         .critical { background: #ffe0e0; color: #cc0000; border: 1px solid #cc0000; }
         .high     { background: #fff0e0; color: #cc6600; border: 1px solid #cc6600; }
         .medium   { background: #fffbe0; color: #997700; border: 1px solid #997700; }
         .low      { background: #e0ffe0; color: #006600; border: 1px solid #006600; }
+        .info     { background: #e0f0ff; color: #0066cc; border: 1px solid #0066cc; }
 
-        /* ── Summary Box ── */
         .summary-box {
-            background: #f0f0f0;
-            border-left: 4px solid #1a1a2e;
-            padding: 10px 15px;
-            margin-bottom: 20px;
-            font-size: 10px;
+            background: #f0f0f0; border-left: 4px solid #1a1a2e;
+            padding: 10px 15px; margin-bottom: 20px; font-size: 10px;
         }
         .summary-box p { margin: 3px 0; }
         .summary-box strong { color: #1a1a2e; }
 
-        /* ── Footer ── */
-        .footer {
-            text-align: center;
-            padding: 15px;
-            color: #999;
-            border-top: 1px solid #ddd;
-            margin-top: 20px;
-            font-size: 9px;
+        .risk-card {
+            background: #fff8f8;
+            border-left: 4px solid #e94560;
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin-bottom: 8px;
+            font-size: 10px;
         }
+        .risk-card .risk-host { font-weight: bold; color: #1a1a2e; font-size: 11px; }
+        .risk-card .risk-score { color: #e94560; font-weight: bold; }
+        .risk-card .risk-rec { color: #666; margin-top: 3px; }
+        .risk-card .risk-mods { color: #888; font-size: 9px; margin-top: 3px; }
 
+        .footer { text-align: center; padding: 15px; color: #999; border-top: 1px solid #ddd; margin-top: 20px; font-size: 9px; }
         .page-break { page-break-before: always; }
     </style>
 </head>
@@ -160,6 +124,10 @@ HTML_TEMPLATE = """
             <div class="num">{{ total_cves }}</div>
             <div class="label">CVEs Found</div>
         </div>
+        <div class="stat-card">
+            <div class="num">{{ top_risk_score }}</div>
+            <div class="label">Top Risk Score</div>
+        </div>
     </div>
 
     <!-- Executive Summary -->
@@ -173,8 +141,24 @@ HTML_TEMPLATE = """
             <p><strong>Open Ports:</strong> {{ total_ports }}</p>
             <p><strong>Vulnerabilities Found:</strong> {{ total_vulns }}</p>
             <p><strong>CVEs Identified:</strong> {{ total_cves }}</p>
+            <p><strong>Highest Risk Score:</strong> {{ top_risk_score }} / 10.0</p>
         </div>
     </div>
+
+    <!-- Risk Chains -->
+    {% if risk_chains %}
+    <div class="section">
+        <div class="section-title">🎯 Prioritized Attack Chains</div>
+        {% for chain in risk_chains %}
+        <div class="risk-card">
+            <div class="risk-host">{{ chain.host }}</div>
+            <div class="risk-score">Risk Score: {{ chain.risk_score }} / 10.0</div>
+            <div class="risk-rec">{{ chain.recommendation }}</div>
+            <div class="risk-mods">Modifiers: {{ chain.modifiers_applied | join(', ') }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     <!-- Subdomains -->
     <div class="section">
@@ -240,10 +224,8 @@ HTML_TEMPLATE = """
                 <col style="width:30%">
             </colgroup>
             <tr><th>Severity</th><th>Name</th><th>Host</th><th>Matched At</th></tr>
-            {% set has_vulns = false %}
             {% for sev in ['critical', 'high', 'medium', 'low'] %}
                 {% for vuln in vulnerabilities.get(sev, []) %}
-                {% set has_vulns = true %}
                 <tr>
                     <td><span class="badge {{ sev }}">{{ sev }}</span></td>
                     <td>{{ vuln.name }}</td>
@@ -297,25 +279,29 @@ HTML_TEMPLATE = """
 
 def generate_report(target: str, output_dir: str, subdomains: list,
                     live_hosts: list, port_results: dict, waf_results: dict,
-                    vuln_results: dict, cve_results: dict) -> str:
+                    vuln_results: dict, cve_results: dict,
+                    risk_chains: list = None) -> str:
 
-    total_ports = sum(len(v) for v in port_results.values())
-    total_vulns = sum(len(v) for v in vuln_results.values())
-    total_cves  = sum(len(v) for v in cve_results.values())
+    total_ports    = sum(len(v) for v in port_results.values())
+    total_vulns    = sum(len(v) for v in vuln_results.values())
+    total_cves     = sum(len(v) for v in cve_results.values())
+    top_risk_score = round(risk_chains[0].risk_score, 2) if risk_chains else 0.0
 
     template = Template(HTML_TEMPLATE)
     html = template.render(
-        target=target,
-        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        subdomains=subdomains,
-        live_hosts=live_hosts,
-        port_scan=port_results,
-        waf=waf_results,
-        vulnerabilities=vuln_results,
-        cve_data=cve_results,
-        total_ports=total_ports,
-        total_vulns=total_vulns,
-        total_cves=total_cves
+        target         = target,
+        timestamp      = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        subdomains     = subdomains,
+        live_hosts     = live_hosts,
+        port_scan      = port_results,
+        waf            = waf_results,
+        vulnerabilities= vuln_results,
+        cve_data       = cve_results,
+        risk_chains    = risk_chains or [],
+        total_ports    = total_ports,
+        total_vulns    = total_vulns,
+        total_cves     = total_cves,
+        top_risk_score = top_risk_score
     )
 
     report_file = f"{output_dir}/{target}_report.html"

@@ -18,35 +18,35 @@ def run_nuclei(live_hosts: list, target: str, raw_dir: str, temp_dir: str) -> di
 
     nuclei_raw = f"{temp_dir}/nuclei_raw.json"
 
-    with console.status("[cyan]Running nuclei vulnerability scan...[/]"):
-        try:
-            result = subprocess.run(
-                [
-                    "nuclei",
-                    "-l", tmp_file,
-                    "-severity", "critical,high,medium,low",
-                    "-o", nuclei_raw,
-                    "-je",
-                    "-silent",
-                    "-rl", "20",
-                    "-timeout", "10",
-                    "-retries", "1",
-                    "-max-host-error", "5",
-                    "-duc",
-                    "-nm",
-                    "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    # Use specific fast templates
-                    "-t", "http/technologies/",
-                    "-t", "http/exposures/",
-                    "-t", "http/misconfiguration/",
-                    "-t", "http/vulnerabilities/",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=600  # 10 minutes
-            )
-        except subprocess.TimeoutExpired:
-            console.print("[yellow][~] Nuclei timed out, continuing...[/]")
+    console.print("[cyan][*] Running nuclei vulnerability scan...[/]")
+
+    try:
+        result = subprocess.run(
+            [
+                "nuclei",
+                "-l", tmp_file,
+                "-severity", "critical,high,medium,low",
+                "-o", nuclei_raw,
+                "-je",
+                "-silent",
+                "-rl", "20",
+                "-timeout", "10",
+                "-retries", "1",
+                "-max-host-error", "5",
+                "-duc",
+                "-nm",
+                "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "-t", "http/technologies/",
+                "-t", "http/exposures/",
+                "-t", "http/misconfiguration/",
+                "-t", "http/vulnerabilities/",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600
+        )
+    except subprocess.TimeoutExpired:
+        console.print("[yellow][~] Nuclei timed out, continuing...[/]")
 
     # Parse results
     findings = []

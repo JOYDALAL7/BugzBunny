@@ -1,10 +1,13 @@
 import click
 import os
 import asyncio
+import json
 from rich.console import Console
 from rich.rule import Rule
 from core.banner import show_banner
 from core.async_runner import run_async, run_parallel
+from core.normalizer import Normalizer
+from core.risk_engine import RiskEngine
 from modules.subdomain import run_subfinder
 from modules.livehosts import run_httpx
 from modules.portscan import run_nmap
@@ -22,6 +25,14 @@ from core.diff import generate_diff
 from core.pdf_export import export_pdf
 
 console = Console()
+
+def phase(number: str, title: str):
+    """Print clean phase header with spacing"""
+    console.print()
+    console.print()
+    console.print(f"  [bold red]━━━ Phase {number} :[/] [bold white]{title}[/]")
+    console.print(f"  [dim]{'─' * 50}[/]")
+    console.print()
 
 @click.group()
 def cli():
@@ -50,11 +61,10 @@ async def _scan(target, output):
     os.makedirs(fuzz_dir,   exist_ok=True)
 
     # Scan header
+    console.print()
     console.print(Rule(style="red"))
     console.print(f"  [bold white]Target  [/]: [cyan]{target}[/]")
     console.print(f"  [bold white]Output  [/]: [cyan]{output_dir}[/]")
-
-    # Initialize Database
     db_path = init_db(output_dir)
     scan_record = create_scan(target)
     console.print(f"  [bold white]Database[/]: [cyan]{db_path}[/]")
@@ -63,7 +73,8 @@ async def _scan(target, output):
     # ──────────────────────────────────────────
     # Phase 1: Subdomain Enumeration
     # ──────────────────────────────────────────
-    console.print("\n[bold red][ Phase 1 ][/] [white]Subdomain Enumeration[/]")
+    phase("1", "Subdomain Enumeration")
+
     subdomains = await run_async(run_subfinder, target, raw_dir, temp_dir)
     if not subdomains:
         console.print("[yellow]  → No subdomains found, using target directly[/]")
@@ -74,7 +85,8 @@ async def _scan(target, output):
     # ──────────────────────────────────────────
     # Phase 2: Live Host Detection
     # ──────────────────────────────────────────
-    console.print("\n[bold red][ Phase 2 ][/] [white]Live Host Detection[/]")
+    phase("2", "Live Host Detection")
+
     live_hosts = await run_async(run_httpx, subdomains, target, raw_dir, temp_dir)
     if not live_hosts:
         console.print("[yellow]  → No live hosts found, using target directly[/]")
@@ -85,8 +97,9 @@ async def _scan(target, output):
     # ──────────────────────────────────────────
     # Phase 3: Parallel Recon
     # ──────────────────────────────────────────
-    console.print("\n[bold red][ Phase 3 ][/] [white]Running Parallel Recon...[/]")
-    console.print("[dim]  → Port Scan | Fuzzing | Fingerprint | WAF | Takeover | JS Secrets | CORS[/]")
+    phase("3", "Parallel Recon")
+    console.print("[dim]  Modules: Port Scan | Fuzzing | Fingerprint | WAF | Takeover | JS Secrets | CORS[/]")
+    console.print()
 
     results = await run_parallel([
         run_async(run_nmap,       live_hosts, target, raw_dir),
@@ -132,8 +145,9 @@ async def _scan(target, output):
     # ──────────────────────────────────────────
     # Phase 4: Vulnerability Scanning
     # ──────────────────────────────────────────
-    console.print("\n[bold red][ Phase 4 ][/] [white]Running Vulnerability Scans...[/]")
-    console.print("[dim]  → Nuclei Scan | CVE Lookup[/]")
+    phase("4", "Vulnerability Scanning")
+    console.print("[dim]  Modules: Nuclei Scan | CVE Lookup[/]")
+    console.print()
 
     vuln_cve = await run_parallel([
         run_async(run_nuclei,     live_hosts, target, raw_dir, temp_dir),
@@ -160,26 +174,76 @@ async def _scan(target, output):
                 data=cve)
 
     # ──────────────────────────────────────────
+    # Phase 4.5: Risk Correlation Engine
+    # ──────────────────────────────────────────
+    phase("4.5", "Risk Correlation & Scoring")
+
+    normalizer   = Normalizer()
+    all_findings = normalizer.normalize_all(
+        port_results = port_results,
+        vuln_results = vuln_results,
+        cve_results  = cve_results,
+        js_results   = js_results,
+        cors_results = cors_results,
+        waf_results  = waf_results
+    )
+
+    risk_chains = RiskEngine(all_findings).run()
+
+    console.print(f"  [dim]Analyzed {len(all_findings)} findings across {len(risk_chains)} hosts[/]")
+    console.print()
+
+    for chain in risk_chains[:3]:
+        if chain.risk_score >= 7.0:
+            color = "bold red"
+        elif chain.risk_score >= 5.0:
+            color = "yellow"
+        else:
+            color = "green"
+        console.print(f"  [{color}]► {chain.host}[/]")
+        console.print(f"    Score : {chain.risk_score}")
+        console.print(f"    Risk  : {chain.recommendation}")
+        console.print(f"    Flags : {', '.join(chain.modifiers_applied)}")
+        console.print()
+
+    # Save risk chains
+    risk_file = f"{raw_dir}/risk_chains.json"
+    with open(risk_file, "w") as f:
+        json.dump([{
+            "host":              c.host,
+            "risk_score":        c.risk_score,
+            "modifiers_applied": c.modifiers_applied,
+            "recommendation":    c.recommendation,
+            "finding_count":     len(c.findings)
+        } for c in risk_chains], f, indent=2)
+    console.print(f"  [green]→ Risk chains saved → {risk_file}[/]")
+
+    # ──────────────────────────────────────────
     # Phase 5: Save & Report
     # ──────────────────────────────────────────
-    console.print("\n[bold red][ Phase 5 ][/] [white]Saving Results & Generating Reports...[/]")
+    phase("5", "Saving Results & Generating Reports")
 
     complete_scan(scan_record)
-    console.print("[green]  → Scan saved to database[/]")
+    console.print("  [green]✓ Scan saved to database[/]")
 
     generate_diff(target, output_dir)
-    console.print("[green]  → Diff report generated[/]")
+    console.print("  [green]✓ Diff report generated[/]")
 
     generate_report(target, output_dir, subdomains, live_hosts,
-                    port_results, waf_results, vuln_results, cve_results)
-    console.print("[green]  → HTML report generated[/]")
+                    port_results, waf_results, vuln_results, cve_results,
+                    risk_chains)
+    console.print("  [green]✓ HTML report generated[/]")
 
     export_pdf(target, output_dir)
-    console.print("[green]  → PDF report generated[/]")
+    console.print("  [green]✓ PDF report generated[/]")
 
     # Final summary
+    console.print()
     console.print(Rule(style="red"))
-    console.print(f"\n  [bold white]Scan Complete![/] 🐰")
+    console.print()
+    console.print("  [bold red]SCAN COMPLETE 🐰[/]")
+    console.print()
+    console.print(f"  [bold white]Target     [/]: [cyan]{target}[/]")
     console.print(f"  [bold white]Subdomains [/]: [cyan]{len(subdomains)}[/]")
     console.print(f"  [bold white]Live Hosts [/]: [cyan]{len(live_hosts)}[/]")
     console.print(f"  [bold white]Open Ports [/]: [cyan]{sum(len(v) for v in port_results.values())}[/]")
@@ -187,7 +251,9 @@ async def _scan(target, output):
     console.print(f"  [bold white]CORS Issues[/]: [cyan]{sum(len(v) for v in cors_results.values())}[/]")
     console.print(f"  [bold white]Vulns Found[/]: [cyan]{sum(len(v) for v in vuln_results.values())}[/]")
     console.print(f"  [bold white]CVEs Found [/]: [cyan]{sum(len(v) for v in cve_results.values())}[/]")
+    console.print(f"  [bold white]Risk Score [/]: [cyan]{risk_chains[0].risk_score if risk_chains else 0.0}[/]")
     console.print(f"  [bold white]Report     [/]: [cyan]{output_dir}/{target}_report.html[/]")
+    console.print()
     console.print(Rule(style="red"))
 
 if __name__ == '__main__':

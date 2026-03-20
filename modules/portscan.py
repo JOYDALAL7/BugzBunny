@@ -39,13 +39,18 @@ def run_nmap(live_hosts: list, target: str, raw_dir: str) -> dict:
         host = host.replace("https://", "").replace("http://", "")
         clean_hosts.append(host)
 
-    with console.status("[cyan]Running port scan...[/]"):
+    console.print("[cyan][*] Running port scan...[/]")
+
+    try:
         result = subprocess.run(
             ["nmap", "-T4", "--open", "-F"] + clean_hosts,
             capture_output=True,
             text=True,
             timeout=300
         )
+    except subprocess.TimeoutExpired:
+        console.print("[yellow][~] Port scan timed out[/]")
+        return {}
 
     parsed = parse_nmap_output(result.stdout)
 
