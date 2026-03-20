@@ -10,25 +10,34 @@ def strip_ansi(text: str) -> str:
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     return ansi_escape.sub('', text)
 
-def run_wafw00f(live_hosts: list, target: str, raw_dir: str) -> dict:
-    """Detect WAF on live hosts"""
+def run_wafw00f(live_hosts: list, target: str, raw_dir: str,
+                mode: str = "active") -> dict:
+    """Detect WAF on live hosts — mode aware"""
 
     if not live_hosts:
         console.print("[red][-] No live hosts to check[/]")
         return {}
 
+    # Passive — skip active WAF probing
+    if mode == "passive":
+        console.print("[dim]  › WAF detection skipped in passive mode[/]")
+        return {}
+
+    # Mode-based timeout
+    timeout = 15 if mode == "stealth" else 30
+
     all_results = {}
 
     for host in live_hosts:
         url = host.split()[0]
-        console.print(f"[cyan][*] Detecting WAF on {url}...[/]")
+        console.print(f"[cyan][*] Detecting WAF on {url} [{mode}]...[/]")
 
         try:
             result = subprocess.run(
                 ["wafw00f", url],
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=timeout
             )
         except subprocess.TimeoutExpired:
             console.print(f"[yellow][~] WAF detection timed out for {url}[/]")
@@ -56,14 +65,14 @@ def run_wafw00f(live_hosts: list, target: str, raw_dir: str) -> dict:
         all_results[url] = waf_detected
 
         if "No WAF" in waf_detected:
-            console.print(f"[red][*] {url} → {waf_detected}[/]")
+            console.print(f"[red]  [*] {url} → {waf_detected}[/]")
         else:
-            console.print(f"[yellow][*] {url} → WAF: {waf_detected}[/]")
+            console.print(f"[yellow]  [*] {url} → WAF: {waf_detected}[/]")
 
     # Save to raw dir
     out_file = f"{raw_dir}/waf.json"
     with open(out_file, "w") as f:
-        json.dump({"target": target, "waf": all_results}, f, indent=2)
+        json.dump({"target": target, "mode": mode, "waf": all_results}, f, indent=2)
 
-    console.print(f"[green][+] WAF detection complete → {out_file}[/]")
+    console.print(f"[green]  ✓ WAF detection complete → {out_file}[/]")
     return all_results

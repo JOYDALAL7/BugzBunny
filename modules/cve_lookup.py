@@ -6,10 +6,9 @@ from rich.console import Console
 
 console = Console()
 
-NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-VALID_TECH_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9\-\_\.]+$')
+NVD_API             = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+VALID_TECH_PATTERN  = re.compile(r'^[a-zA-Z][a-zA-Z0-9\-\_\.]+$')
 
-# Expanded blacklist including HTTP headers
 BLACKLIST = {
     "http", "https", "www", "unknown", "frame", "title", "script",
     "via-proxy", "redirectlocation", "poweredby", "country", "us",
@@ -19,7 +18,6 @@ BLACKLIST = {
     "transport", "security", "cdn-cgi", "cgi", "cookie", "header",
     "redirect", "location", "charset", "encoding", "viewport",
     "robots", "sitemap", "favicon", "icon", "apple", "google",
-    # HTTP headers (new)
     "x-frame-options", "x-xss-protection", "x-ua-compatible",
     "x-powered-by", "x-content-type", "x-forwarded",
     "content-security", "content-type", "content-length",
@@ -31,7 +29,6 @@ BLACKLIST = {
 
 COMMON_TLDS = [".com", ".org", ".net", ".io", ".gov", ".edu", ".co", ".hackerone"]
 
-# Strict whitelist of known vulnerable technologies
 KNOWN_TECHS = {
     "nginx", "apache", "iis", "tomcat", "wordpress", "drupal", "joomla",
     "jquery", "react", "angular", "vue", "laravel", "django", "rails",
@@ -44,18 +41,24 @@ KNOWN_TECHS = {
     "spring", "log4j", "jackson", "lodash", "moment",
     "axios", "express", "koa", "hapi", "fastify",
     "sqlite", "mariadb", "cassandra", "memcached",
-    "rabbitmq", "kafka", "nginx", "haproxy", "traefik"
+    "rabbitmq", "kafka", "haproxy", "traefik"
+}
+
+# ── Mode-based config ──────────────────────────────────
+MODE_CONFIG = {
+    "passive":    {"max_techs": 3,  "results_per_page": 3, "sleep": 2.0},
+    "stealth":    {"max_techs": 5,  "results_per_page": 3, "sleep": 2.0},
+    "active":     {"max_techs": 10, "results_per_page": 5, "sleep": 1.0},
+    "aggressive": {"max_techs": 20, "results_per_page": 10, "sleep": 0.5},
 }
 
 def is_valid_tech(name: str) -> bool:
     """Filter out garbage technology names"""
     name_lower = name.strip().lower()
-
     if not name_lower or len(name_lower) < 3:
         return False
     if name_lower in BLACKLIST:
         return False
-    # Block anything with hyphen that looks like HTTP header
     if "-" in name_lower and name_lower not in KNOWN_TECHS:
         return False
     if not VALID_TECH_PATTERN.match(name_lower):
@@ -66,20 +69,19 @@ def is_valid_tech(name: str) -> bool:
         return False
     if re.search(r'\.\d+', name_lower):
         return False
-    # Must be in known techs whitelist
     if name_lower not in KNOWN_TECHS:
         return False
     return True
 
-def lookup_cve(service: str) -> list:
+def lookup_cve(service: str, results_per_page: int = 5) -> list:
     """Lookup CVEs for a given service/technology"""
     try:
         response = requests.get(
             NVD_API,
             params={
-                "keywordSearch": service,
-                "resultsPerPage": 5,
-                "startIndex": 0
+                "keywordSearch":  service,
+                "resultsPerPage": results_per_page,
+                "startIndex":     0
             },
             timeout=10
         )
@@ -87,43 +89,47 @@ def lookup_cve(service: str) -> list:
         cves = []
 
         for item in data.get("vulnerabilities", []):
-            cve = item.get("cve", {})
-            cve_id = cve.get("id", "N/A")
-            desc = cve.get("descriptions", [{}])[0].get("value", "N/A")
-            metrics = cve.get("metrics", {})
-
-            score = "N/A"
+            cve      = item.get("cve", {})
+            cve_id   = cve.get("id", "N/A")
+            desc     = cve.get("descriptions", [{}])[0].get("value", "N/A")
+            metrics  = cve.get("metrics", {})
+            score    = "N/A"
             severity = "N/A"
+
             if "cvssMetricV31" in metrics:
-                score = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
+                score    = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
                 severity = metrics["cvssMetricV31"][0]["cvssData"]["baseSeverity"]
             elif "cvssMetricV2" in metrics:
-                score = metrics["cvssMetricV2"][0]["cvssData"]["baseScore"]
+                score    = metrics["cvssMetricV2"][0]["cvssData"]["baseScore"]
                 severity = metrics["cvssMetricV2"][0]["baseSeverity"]
 
             cves.append({
-                "id": cve_id,
-                "score": score,
-                "severity": severity,
+                "id":          cve_id,
+                "score":       score,
+                "severity":    severity,
                 "description": desc[:200]
             })
 
         return cves
 
     except Exception as e:
-        console.print(f"[red][-] CVE lookup failed for {service}: {e}[/]")
+        console.print(f"[red]  [-] CVE lookup failed for {service}: {e}[/]")
         return []
 
-def run_cve_lookup(tech_results: dict, port_results: dict, target: str, raw_dir: str) -> dict:
-    """Run CVE lookup for detected technologies and services"""
+def run_cve_lookup(tech_results: dict, port_results: dict, target: str,
+                   raw_dir: str, mode: str = "active") -> dict:
+    """Run CVE lookup — mode aware"""
 
-    console.print("[cyan][*] Running CVE lookup...[/]")
-    all_cves = {}
+    cfg = MODE_CONFIG.get(mode, MODE_CONFIG["active"])
+    console.print(f"[cyan][*] Running CVE lookup [{mode}]...[/]")
+
+    all_cves     = {}
     technologies = set()
 
+    # Collect techs from fingerprint results
     for host, techs in tech_results.items():
         for tech in techs:
-            name = tech.get("name", "").strip()
+            name    = tech.get("name", "").strip()
             version = tech.get("version", "").strip()
             if is_valid_tech(name):
                 if version and re.match(r'^\d[\d\.]+$', version):
@@ -131,25 +137,31 @@ def run_cve_lookup(tech_results: dict, port_results: dict, target: str, raw_dir:
                 else:
                     technologies.add(name)
 
+    # Collect services from port scan
     for host, ports in port_results.items():
         for port in ports:
             service = port.get("service", "").strip()
             if is_valid_tech(service):
                 technologies.add(service)
 
-    for tech in list(technologies)[:10]:
+    # Limit by mode
+    tech_list = list(technologies)[:cfg["max_techs"]]
+
+    for tech in tech_list:
         console.print(f"[cyan][*] Looking up CVEs for: {tech}[/]")
-        cves = lookup_cve(tech)
+        cves = lookup_cve(tech, cfg["results_per_page"])
+
         if cves:
             all_cves[tech] = cves
-            console.print(f"[yellow][!] {tech} → {len(cves)} CVEs found[/]")
-        time.sleep(1)
+            console.print(f"[yellow]  [!] {tech} → {len(cves)} CVEs found[/]")
+
+        time.sleep(cfg["sleep"])
 
     # Save to raw dir
     out_file = f"{raw_dir}/cves.json"
     with open(out_file, "w") as f:
-        json.dump({"target": target, "cves": all_cves}, f, indent=2)
+        json.dump({"target": target, "mode": mode, "cves": all_cves}, f, indent=2)
 
     total = sum(len(v) for v in all_cves.values())
-    console.print(f"[green][+] CVE lookup complete → {total} CVEs found → {out_file}[/]")
+    console.print(f"[green]  ✓ CVE lookup complete → {total} CVEs found → {out_file}[/]")
     return all_cves

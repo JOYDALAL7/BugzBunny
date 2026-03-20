@@ -4,36 +4,63 @@ from rich.console import Console
 
 console = Console()
 
-def run_subjack(subdomains: list, target: str, raw_dir: str, temp_dir: str) -> dict:
-    """Check for subdomain takeover vulnerabilities using subjack"""
+def run_subjack(subdomains: list, target: str, raw_dir: str, temp_dir: str,
+                mode: str = "active") -> dict:
+    """Check for subdomain takeover — mode aware"""
 
     if not subdomains:
         console.print("[red][-] No subdomains to check[/]")
         return {}
 
-    # Temp files go in temp_dir
+    # Passive — skip active probing
+    if mode == "passive":
+        console.print("[dim]  › Takeover check skipped in passive mode[/]")
+        return {}
+
+    # Mode-based config
+    if mode == "stealth":
+        threads = "5"
+        timeout = "60"
+        proc_timeout = 300
+    elif mode == "aggressive":
+        threads = "50"
+        timeout = "20"
+        proc_timeout = 300
+    else:  # active (default)
+        threads = "20"
+        timeout = "30"
+        proc_timeout = 180
+
+    console.print(f"[cyan][*] Checking subdomain takeovers [{mode}]...[/]")
+
+    # Write subdomains to temp file
     tmp_file = f"{temp_dir}/subs.txt"
     with open(tmp_file, "w") as f:
         f.write("\n".join(subdomains))
 
     raw_out = f"{temp_dir}/takeover_raw.txt"
 
-    with console.status("[cyan]Checking for subdomain takeovers...[/]"):
-        result = subprocess.run(
+    try:
+        subprocess.run(
             [
                 "subjack",
-                "-w", tmp_file,
-                "-t", "20",
-                "-timeout", "30",
-                "-o", raw_out,
+                "-w",       tmp_file,
+                "-t",       threads,
+                "-timeout", timeout,
+                "-o",       raw_out,
                 "-ssl"
             ],
             capture_output=True,
             text=True,
-            timeout=180
+            timeout=proc_timeout
         )
+    except subprocess.TimeoutExpired:
+        console.print("[yellow][~] Takeover check timed out[/]")
+    except FileNotFoundError:
+        console.print("[red][-] subjack not found — skipping[/]")
+        return {}
 
-    # Parse only raw text output
+    # Parse results
     vulnerable = []
     try:
         with open(raw_out) as f:
@@ -49,21 +76,22 @@ def run_subjack(subdomains: list, target: str, raw_dir: str, temp_dir: str) -> d
         pass
 
     results = {
-        "vulnerable": vulnerable,
-        "total_checked": len(subdomains)
+        "vulnerable":     vulnerable,
+        "total_checked":  len(subdomains),
+        "mode":           mode
     }
 
-    # Save structured JSON to raw dir
+    # Save to raw dir
     out_file = f"{raw_dir}/takeover.json"
     with open(out_file, "w") as f:
-        json.dump({"target": target, "takeover": results}, f, indent=2)
+        json.dump({"target": target, "mode": mode, "takeover": results}, f, indent=2)
 
     if vulnerable:
-        console.print(f"[bold red][!] {len(vulnerable)} VULNERABLE subdomains found![/]")
+        console.print(f"[bold red]  [!] {len(vulnerable)} VULNERABLE subdomains![/]")
         for v in vulnerable:
-            console.print(f"[red]  → {v}[/]")
+            console.print(f"  [red]→ {v}[/]")
     else:
-        console.print(f"[green][+] No takeover vulnerabilities found[/]")
+        console.print(f"[green]  ✓ No takeover vulnerabilities found[/]")
 
-    console.print(f"[green][+] Takeover check complete → {out_file}[/]")
+    console.print(f"[green]  ✓ Takeover check complete → {out_file}[/]")
     return results

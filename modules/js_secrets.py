@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from rich.console import Console
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 console = Console()
 
 # ── Categorized Pattern Library ────────────────────────
@@ -79,6 +78,14 @@ SECRET_PATTERNS = {
     },
 }
 
+# ── Severity filter per mode ───────────────────────────
+MODE_SEVERITY_FILTER = {
+    "passive":    [],                              # skip entirely
+    "stealth":    ["critical"],                    # critical only
+    "active":     ["critical", "high"],            # critical + high
+    "aggressive": ["critical", "high", "medium"],  # all except low
+}
+
 # ── False Positive Indicators ──────────────────────────
 FALSE_POSITIVE_PATTERNS = [
     "example", "test", "placeholder", "your_",
@@ -87,7 +94,6 @@ FALSE_POSITIVE_PATTERNS = [
     "aaaaaa", "123456", "abcdef", "none", "null"
 ]
 
-# ── Secret Finding Dataclass ───────────────────────────
 @dataclass
 class SecretFinding:
     secret_type: str
@@ -97,44 +103,31 @@ class SecretFinding:
     confidence:  float
     entropy:     float
 
-# ── Shannon Entropy Calculator ─────────────────────────
 def calculate_entropy(text: str) -> float:
-    """Calculate Shannon entropy of a string"""
     if not text:
         return 0.0
     freq = {}
     for c in text:
         freq[c] = freq.get(c, 0) + 1
     entropy = 0.0
-    length = len(text)
+    length  = len(text)
     for count in freq.values():
-        prob = count / length
+        prob     = count / length
         entropy -= prob * math.log2(prob)
     return round(entropy, 3)
 
-# ── False Positive Filter ──────────────────────────────
 def is_false_positive(match: str) -> bool:
-    """Filter out obvious false positives"""
     match_lower = match.lower()
-
-    # Check against known false positive patterns
     for fp in FALSE_POSITIVE_PATTERNS:
         if fp in match_lower:
             return True
-
-    # Low entropy = likely placeholder
-    entropy = calculate_entropy(match)
-    if entropy < 2.0:
+    if calculate_entropy(match) < 2.0:
         return True
-
-    # Too short to be real
     if len(match) < 8:
         return True
-
     return False
 
-# ── JS File Discovery ──────────────────────────────────
-def find_js_files(url: str) -> list:
+def find_js_files(url: str, limit: int = 20) -> list:
     """Find JS files from a URL"""
     js_files = []
     try:
@@ -152,17 +145,15 @@ def find_js_files(url: str) -> list:
             elif match.startswith("//"):
                 js_files.append(f"https:{match}")
             elif match.startswith("/"):
-                base = url.rstrip("/")
-                js_files.append(f"{base}{match}")
+                js_files.append(f"{url.rstrip('/')}{match}")
     except Exception:
         pass
-    return js_files[:20]
+    return js_files[:limit]
 
-# ── JS File Scanner ────────────────────────────────────
-def scan_js_file(js_url: str) -> list:
-    """Scan a JS file for secrets using advanced detection"""
+def scan_js_file(js_url: str, severity_filter: list) -> list:
+    """Scan a JS file for secrets — filters by severity"""
     findings = []
-    seen = set()
+    seen     = set()
 
     try:
         response = requests.get(
@@ -174,24 +165,24 @@ def scan_js_file(js_url: str) -> list:
         content = response.text
 
         for secret_type, config in SECRET_PATTERNS.items():
-            matches = re.findall(config["pattern"], content)
 
+            # Skip if severity not in mode filter
+            if config["severity"] not in severity_filter:
+                continue
+
+            matches = re.findall(config["pattern"], content)
             for match in matches:
                 match_str = str(match)[:150].strip()
 
-                # Skip duplicates
                 if match_str in seen:
                     continue
-
-                # Skip false positives
                 if is_false_positive(match_str):
                     continue
 
                 seen.add(match_str)
-                entropy = calculate_entropy(match_str)
-
-                # Boost confidence if entropy is high
+                entropy    = calculate_entropy(match_str)
                 confidence = config["confidence"]
+
                 if entropy > 4.0:
                     confidence = min(1.0, confidence + 0.05)
                 elif entropy < 3.0:
@@ -211,22 +202,30 @@ def scan_js_file(js_url: str) -> list:
 
     return findings
 
-# ── Main Runner ────────────────────────────────────────
-def run_js_secrets(live_hosts: list, target: str, raw_dir: str) -> dict:
-    """Find secrets in JS files across all live hosts"""
+def run_js_secrets(live_hosts: list, target: str, raw_dir: str,
+                   mode: str = "active") -> dict:
+    """Find secrets in JS files — mode aware"""
 
     if not live_hosts:
         console.print("[red][-] No live hosts to scan for JS secrets[/]")
         return {}
 
+    # Passive — skip
+    if mode == "passive":
+        console.print("[dim]  › JS secrets skipped in passive mode[/]")
+        return {}
+
+    severity_filter = MODE_SEVERITY_FILTER.get(mode, ["critical", "high"])
+    js_limit        = 10 if mode == "stealth" else 20
+
     all_findings = {}
-    total = 0
+    total        = 0
 
     for host in live_hosts:
         url = host.split()[0]
-        console.print(f"[cyan][*] Scanning JS files on {url}[/]")
+        console.print(f"[cyan][*] Scanning JS files on {url} [{mode}]...[/]")
 
-        js_files  = find_js_files(url)
+        js_files      = find_js_files(url, limit=js_limit)
         console.print(f"[dim]    Found {len(js_files)} JS files[/]")
 
         host_findings = []
@@ -237,21 +236,20 @@ def run_js_secrets(live_hosts: list, target: str, raw_dir: str) -> dict:
                 continue
             seen_urls.add(js_url)
 
-            secrets = scan_js_file(js_url)
-            if secrets:
-                for s in secrets:
-                    host_findings.append({
-                        "type":       s.secret_type,
-                        "match":      s.match,
-                        "url":        s.url,
-                        "severity":   s.severity,
-                        "confidence": s.confidence,
-                        "entropy":    s.entropy
-                    })
-                    console.print(
-                        f"[bold red]  [!] {s.secret_type}[/] "
-                        f"[dim]entropy={s.entropy} confidence={s.confidence}[/]"
-                    )
+            secrets = scan_js_file(js_url, severity_filter)
+            for s in secrets:
+                host_findings.append({
+                    "type":       s.secret_type,
+                    "match":      s.match,
+                    "url":        s.url,
+                    "severity":   s.severity,
+                    "confidence": s.confidence,
+                    "entropy":    s.entropy
+                })
+                console.print(
+                    f"  [bold red][!] {s.secret_type}[/]  "
+                    f"[dim]entropy={s.entropy}  confidence={s.confidence}[/]"
+                )
 
         if host_findings:
             all_findings[url] = host_findings
@@ -260,11 +258,11 @@ def run_js_secrets(live_hosts: list, target: str, raw_dir: str) -> dict:
     # Save results
     out_file = f"{raw_dir}/js_secrets.json"
     with open(out_file, "w") as f:
-        json.dump({"target": target, "secrets": all_findings}, f, indent=2)
+        json.dump({"target": target, "mode": mode, "secrets": all_findings}, f, indent=2)
 
     if total > 0:
-        console.print(f"[bold red][!] Found {total} secrets → {out_file}[/]")
+        console.print(f"[bold red]  [!] Found {total} secrets → {out_file}[/]")
     else:
-        console.print(f"[green][+] No secrets found in JS files[/]")
+        console.print(f"[green]  ✓ No secrets found in JS files[/]")
 
     return all_findings
