@@ -1,58 +1,26 @@
 <div align="center">
 
-# 🐰 BugzBunny
+<img src="assets/banner.png" alt="BugzBunny Banner" width="100%">
 
-### Hop. Hunt. Hack.
+# BugzBunny
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-2.1.0-orange?style=for-the-badge)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)
-![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=for-the-badge&logo=fastapi)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-2.1.0-e94560?style=flat-square)]()
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 
-*Transforms raw scan data into prioritized, exploitable attack paths using correlation and risk scoring.*
+**Async security intelligence platform that transforms raw scan data into prioritized, exploitable attack chains.**
+
+[Installation](#installation) · [Usage](#usage) · [Features](#features) · [Intelligence Layer](#intelligence-layer) · [REST API](#rest-api)
 
 </div>
 
 ---
 
-## 📸 Screenshots
+## The Problem
 
-### Tool Banner
-![Banner](assets/banner.png)
-
-### CLI Execution
-![CLI](assets/cli.png)
-
-### Attack Chain Detection (Core Feature)
-![Attack Chain](assets/attack_chain.png)
-
-### HTML Report (Dashboard)
-![Report](assets/report.png)
-
-### Structured Telemetry Logs
-![Logs](assets/logs.png)
-
----
-
-## Overview
-
-Most recon tools dump raw output. BugzBunny **correlates findings** across modules, scores risk using a CVSS-inspired formula, and surfaces exploitable attack paths with step-by-step chains.
-
-**What makes it different:**
-- Adaptive scan modes — every module adjusts behavior based on context
-- Custom risk engine that combines port + tech + CVE + WAF into a single exploitability score
-- Shannon entropy-based secret detection with false positive filtering
-- Structured JSON telemetry with per-module performance metrics
-- Normalized relational schema across 10 tables — not a JSON blob
-
-*This shifts the workflow from manual triage → automated security decision-making.*
-
----
-
-## Example Output
-
-**Raw findings (what other tools give you):**
+Most recon tools give you a data dump:
 ```
 port 443 open
 nginx/1.18 detected
@@ -60,25 +28,31 @@ CVE-2021-44224 found
 no WAF detected
 ```
 
-**BugzBunny attack chain (what you get):**
-```
-🔥 api.target.com  |  Risk: 9.2 (CRITICAL)  |  EXPLOITABLE
+You still have to figure out what it means.
 
-  Chain:  open_port:443 → tech:nginx/1.18 → cve:CVE-2021-44224 → no_waf
-  Impact: Unprotected nginx host with known RCE vulnerability, no WAF
-  Action: Immediate patching required
+## What BugzBunny Does
 ```
+🔴  api.target.com  ·  Risk Score: 9.2  ·  EXPLOITABLE
+
+    Chain   open_port:443 → tech:nginx/1.18 → cve:CVE-2021-44224 → no_waf
+    Impact  Unprotected nginx host with known RCE vulnerability, no WAF protection
+    Action  Immediate patching required — high probability of exploitation
+```
+
+BugzBunny correlates findings across 16+ modules, scores risk using a CVSS-inspired formula,
+and surfaces exploitable attack paths — automatically.
 
 ---
 
-## Key Capabilities
+## Screenshots
 
-- **Attack Chain Detection** — connects port → tech → CVE → WAF into exploitable paths
-- **CVSS-Style Risk Scoring** — severity × confidence + exploitability modifiers, clamped 0–10
-- **Adaptive Scan Modes** — 11 modules adjust rate limits, templates, and coverage per mode
-- **Entropy-Based Secret Detection** — 13 pattern types, Shannon entropy validation, false positive filter
-- **Normalized Schema** — 10-table SQLite with proper foreign keys, queryable across modules
-- **Structured Telemetry** — every module emits JSON logs with duration, findings count, scan ID
+| CLI Execution | HTML Report |
+|:---:|:---:|
+| ![CLI](assets/cli.png) | ![Report](assets/report.png) |
+
+| Attack Chains | Structured Logs |
+|:---:|:---:|
+| ![Chains](assets/attack_chain.png) | ![Logs](assets/logs.png) |
 
 ---
 
@@ -86,69 +60,52 @@ no WAF detected
 
 | Module | Tool | Description |
 |--------|------|-------------|
-| 🔍 Subdomain Enumeration | `subfinder` | Passive + active subdomain discovery |
-| 🌐 Live Host Detection | `curl` | HTTP/HTTPS host probing |
+| 🔍 Subdomain Enumeration | `subfinder` | Passive + active discovery |
+| 🌐 Live Host Detection | `curl` | HTTP/HTTPS probing |
 | 🔌 Port Scanning | `nmap` | Open port and service detection |
-| 📁 Directory Fuzzing | `ffuf` | Path brute-forcing with wordlists |
+| 📁 Directory Fuzzing | `ffuf` | Path brute-forcing |
 | 🧬 Tech Fingerprinting | `whatweb` | Tech stack identification |
-| 🛡️ WAF Detection | `wafw00f` | WAF presence and provider detection |
+| 🛡️ WAF Detection | `wafw00f` | WAF presence and provider |
 | 🎯 Subdomain Takeover | `subjack` | Dangling DNS detection |
 | ⚠️ Vulnerability Scanning | `nuclei` | Template-based CVE detection |
 | 🔎 CVE Lookup | `NVD API` | Service-to-CVE mapping |
-| 🔐 JS Secret Detection | `custom` | Entropy-scored API key extraction |
-| 🌍 CORS Check | `custom` | Origin reflection and credential leaks |
-| 🎲 Risk Engine | `custom` | Attack chain scoring and prioritization |
-| 📋 Structured Logging | `custom` | JSON telemetry with correlation IDs |
-| 📄 Reports | `jinja2 + weasyprint` | HTML + professional A4 PDF |
+| 🔐 JS Secret Detection | `custom` | Entropy-scored key extraction |
+| 🌍 CORS Check | `custom` | Origin reflection + credential leaks |
+| 🎲 Risk Engine | `custom` | Attack chain scoring |
+| 📋 Structured Logging | `custom` | JSON telemetry per module |
+| 📄 Reports | `jinja2 + weasyprint` | HTML + PDF output |
 | 🌐 REST API | `FastAPI` | Programmatic scan control |
 | 🐳 Docker | `docker-compose` | Containerized deployment |
 
 ---
 
-## Scan Modes
-
-Every module adapts its behavior — rate limits, templates, and coverage — based on the selected mode.
-```bash
-python main.py scan --target example.com --mode passive      # recon only, no active scanning
-python main.py scan --target example.com --mode stealth      # slow, low-noise
-python main.py scan --target example.com --mode active       # full scan, balanced (default)
-python main.py scan --target example.com --mode aggressive   # maximum coverage
-```
-
-| Module | passive | stealth | active | aggressive |
-|--------|:-------:|:-------:|:------:|:----------:|
-| nmap | ❌ | `-T2` | `-T4 -F` | `-p- -sV` |
-| ffuf | ❌ | ❌ | 50 threads | 100 threads |
-| nuclei | ❌ | crit+high | all templates | all + CVEs |
-| js_secrets | ❌ | critical | crit+high | crit+high+med |
-| cors | ❌ | 1 origin | 3 origins | 5 origins |
-| subjack | ❌ | 5 threads | 20 threads | 50 threads |
-
----
-
 ## Intelligence Layer
 
-### Risk Scoring
+### Risk Scoring Formula
 ```
 base_score  = avg(severity_weight × confidence)
-modifiers   = no_waf(+2.0) | known_cve(+2.5) | has_secret(+3.0) | cors_creds(+3.5)
-              waf_present(-2.0) | low_confidence(-1.0)
+modifiers   = no_waf(+2.0) | known_cve(+2.5) | has_secret(+3.0)
+              cors_creds(+3.5) | waf_present(-2.0) | low_confidence(-1.0)
 final_score = clamp(base + modifiers, 0.0, 10.0)
 ```
 
 ### Exploitability Rule
 ```
-exploitable = has_open_port AND (has_cve OR has_secret OR has_cors) AND no_waf
+exploitable = has_open_port
+              AND (has_cve OR has_secret OR has_cors)
+              AND no_waf
 ```
 
-### JS Secret Detection
+### JS Secret Detection Engine
 ```
-match → entropy check → false positive filter → confidence score
-entropy < 2.0  →  rejected
+pattern match → entropy check → false positive filter → confidence score
+
+entropy < 2.0  →  rejected (placeholder value)
 entropy > 4.0  →  confidence boosted
+13 pattern types including AWS, GitHub, Stripe, JWT, private keys
 ```
 
-### Telemetry Sample
+### Structured Telemetry
 ```json
 {
   "ts": "2026-03-20T12:01:38",
@@ -156,8 +113,40 @@ entropy > 4.0  →  confidence boosted
   "module": "parallel_recon",
   "level": "METRIC",
   "event": "module_complete",
-  "data": {"duration_ms": 69953, "findings_count": 30}
+  "data": { "duration_ms": 69953, "findings_count": 30 }
 }
+```
+
+---
+
+## Scan Modes
+
+Every module adapts rate limits, templates, and coverage based on the selected mode.
+
+| Module | `passive` | `stealth` | `active` | `aggressive` |
+|--------|:---------:|:---------:|:--------:|:------------:|
+| nmap | ❌ | `-T2` | `-T4 -F` | `-p- -sV` |
+| ffuf | ❌ | ❌ | 50 threads | 100 threads |
+| nuclei | ❌ | crit+high | all templates | all + CVEs |
+| js_secrets | ❌ | critical | crit+high | all |
+| cors | ❌ | 1 origin | 3 origins | 5 origins |
+| subjack | ❌ | 5 threads | 20 threads | 50 threads |
+
+---
+
+## Pipeline
+```
+Phase 1    →  Subdomain Enumeration
+Phase 2    →  Live Host Detection
+           ┌──────────────────────────────────────────────────────┐
+Phase 3    →  Port Scan · Fuzzing · Fingerprint · WAF             │  parallel
+           │  Takeover · JS Secrets · CORS                        │
+           └──────────────────────────────────────────────────────┘
+           ┌──────────────────────────────────────────────────────┐
+Phase 4    →  Nuclei Vulnerability Scan · CVE Lookup              │  parallel
+           └──────────────────────────────────────────────────────┘
+Phase 4.5  →  Risk Correlation + Attack Chain Engine
+Phase 5    →  Database · Diff · HTML Report · PDF
 ```
 
 ---
@@ -191,14 +180,17 @@ docker-compose up -d
 ```bash
 source venv/bin/activate
 
-# Default scan
+# Default active scan
 python main.py scan --target hackerone.com
 
-# With mode
+# Stealth mode
 python main.py scan --target hackerone.com --mode stealth
 
-# Custom output
+# Custom output directory
 python main.py scan --target hackerone.com --output /tmp/results
+
+# Help
+python main.py scan --help
 ```
 
 ---
@@ -210,39 +202,30 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/scan` | Start a scan |
-| GET | `/scans` | List all scans |
-| GET | `/scan/{id}` | Scan status |
-| GET | `/scan/{id}/report` | HTML report |
-| DELETE | `/scan/{id}` | Delete scan |
+| `POST` | `/scan` | Start a new scan |
+| `GET` | `/scans` | List all scans |
+| `GET` | `/scan/{id}` | Get scan status |
+| `GET` | `/scan/{id}/report` | Retrieve HTML report |
+| `DELETE` | `/scan/{id}` | Delete scan record |
 
-Swagger UI: `http://localhost:8000/docs`
-
----
-
-## Pipeline
-```
-Phase 1    →  Subdomain Enumeration
-Phase 2    →  Live Host Detection
-Phase 3    →  Port Scan + Fuzzing + Fingerprint + WAF + Takeover + JS Secrets + CORS  ← parallel
-Phase 4    →  Nuclei + CVE Lookup  ← parallel
-Phase 4.5  →  Risk Correlation + Attack Chain Engine
-Phase 5    →  Database + Diff + HTML + PDF
-```
+Swagger UI available at `http://localhost:8000/docs`
 
 ---
 
-## Output
+## Output Structure
 ```
 reports/target.com/
-├── target.com_report.html      ← dark-themed HTML report
-├── target.com_report.pdf       ← A4 PDF report
-├── bugzbunny.db                ← normalized SQLite (10 tables)
+├── target.com_report.html      ← full HTML report with attack chains
+├── target.com_report.pdf       ← professional A4 PDF
+├── bugzbunny.db                ← normalized SQLite database (10 tables)
 ├── diff_report.json            ← delta from previous scan
-├── logs/<scan_id>.log          ← structured JSON telemetry
+├── logs/
+│   └── <scan_id>.log           ← structured JSON telemetry
 └── raw/
     ├── subdomains.json
     ├── ports.json
+    ├── fingerprint.json
+    ├── waf.json
     ├── vulnerabilities.json
     ├── cves.json
     ├── js_secrets.json
@@ -253,27 +236,28 @@ reports/target.com/
 
 ---
 
-## Database Schema
-```
-Scan · Finding · Target · Host · Port
-Technology · WAFResult · Secret · CORSResult · RiskChain
-```
+## Database
 
-10 normalized tables with foreign key relationships — queryable across modules.
+10 normalized tables with foreign key relationships — fully queryable across modules.
+```
+Scan  ·  Finding  ·  Target  ·  Host  ·  Port
+Technology  ·  WAFResult  ·  Secret  ·  CORSResult  ·  RiskChain
+```
 
 ---
 
-## Legal Disclaimer
+## Legal
 
-> For **authorized security testing only**.
+> For **authorized security testing only.**
 > Always obtain written permission before scanning any target.
-> Only test targets listed on HackerOne, Bugcrowd, or Intigriti.
+> Only test systems you own or have explicit authorization to test.
+> Only engage with targets listed on HackerOne, Bugcrowd, or Intigriti.
 
 ---
 
 <div align="center">
 
-**Joy Dalal** — [@JOYDALAL7](https://github.com/JOYDALAL7)
+Built by **Joy Dalal** — [@JOYDALAL7](https://github.com/JOYDALAL7)
 
 *Hop. Hunt. Hack. 🐰*
 
