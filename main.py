@@ -6,7 +6,6 @@ import time
 from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
-from rich.panel import Panel
 from core.banner import show_banner
 from core.async_runner import run_async, run_parallel
 from core.normalizer import Normalizer
@@ -30,31 +29,30 @@ from core.pdf_export import export_pdf
 
 console = Console()
 
-# ── Scan Mode Configs ──────────────────────────────────
 SCAN_MODES = {
     "passive": {
-        "description":  "Subdomain + live hosts + fingerprint only. No active scanning.",
+        "description":  "Subdomain + live hosts + fingerprint only",
         "run_ports":    False,
         "run_fuzz":     False,
         "run_nuclei":   False,
         "run_takeover": False,
     },
     "stealth": {
-        "description":  "Low-noise scan. Slow rate limits, no fuzzing.",
+        "description":  "Low-noise scan. No fuzzing.",
         "run_ports":    True,
         "run_fuzz":     False,
         "run_nuclei":   True,
         "run_takeover": True,
     },
     "active": {
-        "description":  "Full scan. All modules. Balanced speed.",
+        "description":  "Full scan. All modules.",
         "run_ports":    True,
         "run_fuzz":     True,
         "run_nuclei":   True,
         "run_takeover": True,
     },
     "aggressive": {
-        "description":  "Maximum coverage. All modules. High rate limits.",
+        "description":  "Maximum coverage. High rate limits.",
         "run_ports":    True,
         "run_fuzz":     True,
         "run_nuclei":   True,
@@ -62,49 +60,52 @@ SCAN_MODES = {
     },
 }
 
+# ── CLI helpers ────────────────────────────────────────
 def phase(number: str, title: str):
     console.print()
     console.print()
-    console.print(f"  [bold red]PHASE {number}[/bold red]")
-    console.print(f"  [bold white]{title}[/bold white]")
-    console.print(f"  [dim]{'─' * 40}[/dim]")
+    console.print(f"  [bold red]━━━[/bold red]  [bold white]Phase {number}[/bold white]  [dim]·[/dim]  [white]{title}[/white]")
+    console.print(f"  [dim]{'─' * 52}[/dim]")
     console.print()
 
 def info(msg: str):
-    console.print(f"  [dim]›[/dim] {msg}")
+    console.print(f"  [dim]›[/dim]  {msg}")
 
 def success(msg: str):
-    console.print(f"  [bold green]✓[/bold green]  {msg}")
+    console.print(f"  [green]✓[/green]  {msg}")
 
-def warning(msg: str):
-    console.print(f"  [bold yellow]⚠[/bold yellow]  {msg}")
+def warn(msg: str):
+    console.print(f"  [yellow]⚠[/yellow]  {msg}")
 
-def finding(msg: str):
-    console.print(f"  [bold red]![/bold red]  {msg}")
+def divider():
+    console.print(f"  [dim]{'─' * 52}[/dim]")
 
+def blank():
+    console.print()
+
+# ── CLI ────────────────────────────────────────────────
 @click.group()
 def cli():
     """BugzBunny - Hop. Hunt. Hack."""
     show_banner()
 
 @cli.command()
-@click.option('--target', '-t', required=True, help='Target domain')
-@click.option('--output', '-o', default='reports', help='Output directory')
+@click.option('--target', '-t', required=True,     help='Target domain to scan')
+@click.option('--output', '-o', default='reports', help='Output directory  (default: reports)')
 @click.option('--mode',   '-m',
               default='active',
               type=click.Choice(['passive', 'stealth', 'active', 'aggressive'],
                                 case_sensitive=False),
-              help='Scan mode: passive | stealth | active | aggressive')
+              help='Scan mode       (default: active)')
 def scan(target, output, mode):
-    """Run full recon pipeline on a target"""
+    """Run full recon + intelligence pipeline on a target."""
     asyncio.run(_scan(target, output, mode))
 
+# ── Pipeline ───────────────────────────────────────────
 async def _scan(target, output, mode="active"):
-    """Async scan pipeline"""
 
     cfg = SCAN_MODES[mode]
 
-    # Folder structure
     output_dir = os.path.join(output, target)
     raw_dir    = os.path.join(output_dir, "raw")
     temp_dir   = os.path.join(output_dir, "temp")
@@ -115,111 +116,102 @@ async def _scan(target, output, mode="active"):
     os.makedirs(temp_dir,   exist_ok=True)
     os.makedirs(fuzz_dir,   exist_ok=True)
 
-    logger = create_logger(target, output_dir)
-
-    # Scan header
-    console.print()
-    console.print(Rule(characters="─", style="red"))
-    console.print()
-    console.print(f"  [bold white]Target  [/bold white]  [dim]→[/dim]  [bold cyan]{target}[/bold cyan]")
+    logger      = create_logger(target, output_dir)
     db_path     = init_db(output_dir)
     scan_record = create_scan(target)
-    console.print(f"  [bold white]Output  [/bold white]  [dim]→[/dim]  [dim]{output_dir}[/dim]")
-    console.print(f"  [bold white]Database[/bold white]  [dim]→[/dim]  [dim]{db_path}[/dim]")
-    console.print(f"  [bold white]Mode    [/bold white]  [dim]→[/dim]  [bold yellow]{mode.upper()}[/bold yellow]  [dim]{cfg['description']}[/dim]")
-    console.print()
+
+    # ── Scan header ────────────────────────────────────
+    blank()
+    console.print(Rule(characters="─", style="red"))
+    blank()
+    console.print(f"  [bold white]Target  [/bold white]  [cyan]{target}[/cyan]")
+    console.print(f"  [bold white]Output  [/bold white]  [dim]{output_dir}[/dim]")
+    console.print(f"  [bold white]Mode    [/bold white]  [yellow]{mode.upper()}[/yellow]  [dim]·  {cfg['description']}[/dim]")
+    blank()
     console.print(Rule(characters="─", style="red"))
 
     logger.info("scanner", "pipeline_started", {"output_dir": output_dir, "mode": mode})
 
-    # ──────────────────────────────────────────
-    # Phase 1: Subdomain Enumeration
-    # ──────────────────────────────────────────
+    # ──────────────────────────────────────────────────
+    # Phase 1 : Subdomain Enumeration
+    # ──────────────────────────────────────────────────
     phase("1", "Subdomain Enumeration")
     t0 = time.time()
 
-    subdomains = await run_async(run_subfinder, target, raw_dir, temp_dir, mode)
+    subdomains = await run_async(run_subfinder, target, raw_dir, temp_dir)
     if not subdomains:
-        warning("No subdomains found — using target directly")
+        warn("No subdomains found — using target directly")
         subdomains = [target]
     else:
-        success(f"Found [bold cyan]{len(subdomains)}[/bold cyan] subdomains")
+        success(f"Found [cyan]{len(subdomains)}[/cyan] subdomains")
 
     for sub in subdomains:
         save_finding(scan_record, "subdomain", "info", sub, data={"subdomain": sub})
 
     logger.metric("subdomain", (time.time() - t0) * 1000, len(subdomains))
 
-    # ──────────────────────────────────────────
-    # Phase 2: Live Host Detection
-    # ──────────────────────────────────────────
+    # ──────────────────────────────────────────────────
+    # Phase 2 : Live Host Detection
+    # ──────────────────────────────────────────────────
     phase("2", "Live Host Detection")
     t0 = time.time()
 
     live_hosts = await run_async(run_httpx, subdomains, target, raw_dir, temp_dir)
     if not live_hosts:
-        warning("No live hosts found — using target directly")
+        warn("No live hosts found — using target directly")
         live_hosts = [f"http://{target}"]
         logger.warning("livehosts", "no_hosts_found", {"fallback": f"http://{target}"})
     else:
-        success(f"Found [bold cyan]{len(live_hosts)}[/bold cyan] live hosts")
+        success(f"Found [cyan]{len(live_hosts)}[/cyan] live hosts")
 
     for host in live_hosts:
         save_finding(scan_record, "livehosts", "info", host, data={"url": host})
 
     logger.metric("livehosts", (time.time() - t0) * 1000, len(live_hosts))
 
-    # ──────────────────────────────────────────
-    # Phase 3: Parallel Recon
-    # ──────────────────────────────────────────
+    # ──────────────────────────────────────────────────
+    # Phase 3 : Parallel Recon
+    # ──────────────────────────────────────────────────
     phase("3", "Parallel Recon")
 
-    active_modules = ["whatweb", "wafw00f", "js_secrets", "cors"]
-    if cfg["run_ports"]:    active_modules.append("nmap")
-    if cfg["run_fuzz"]:     active_modules.append("ffuf")
-    if cfg["run_takeover"]: active_modules.append("subjack")
+    active_mods = ["whatweb", "wafw00f", "js_secrets", "cors"]
+    if cfg["run_ports"]:    active_mods.append("nmap")
+    if cfg["run_fuzz"]:     active_mods.append("ffuf")
+    if cfg["run_takeover"]: active_mods.append("subjack")
 
-    info(f"Modules: {' · '.join(active_modules)}")
-    console.print()
+    info(f"Modules  →  {' · '.join(active_mods)}")
+    blank()
 
     t0 = time.time()
 
-    # Build parallel tasks — pass mode to ALL modules
-    parallel_tasks = []
-
-    if cfg["run_ports"]:
-        parallel_tasks.append(run_async(run_nmap, live_hosts, target, raw_dir, mode))
-
-    parallel_tasks += [
-        run_async(run_whatweb,    live_hosts, target, raw_dir,  mode),
-        run_async(run_wafw00f,    live_hosts, target, raw_dir,  mode),
-        run_async(run_js_secrets, live_hosts, target, raw_dir,  mode),
-        run_async(run_cors,       live_hosts, target, raw_dir,  mode),
+    parallel_tasks = [
+        run_async(run_whatweb,    live_hosts, target, raw_dir),
+        run_async(run_wafw00f,    live_hosts, target, raw_dir),
+        run_async(run_js_secrets, live_hosts, target, raw_dir),
+        run_async(run_cors,       live_hosts, target, raw_dir),
     ]
-
+    if cfg["run_ports"]:
+        parallel_tasks.append(run_async(run_nmap, live_hosts, target, raw_dir))
     if cfg["run_fuzz"]:
-        parallel_tasks.append(run_async(run_ffuf, live_hosts, target, fuzz_dir, mode))
+        parallel_tasks.append(run_async(run_ffuf, live_hosts, target, fuzz_dir))
     if cfg["run_takeover"]:
-        parallel_tasks.append(run_async(run_subjack, subdomains, target, raw_dir, temp_dir, mode))
+        parallel_tasks.append(run_async(run_subjack, subdomains, target, raw_dir, temp_dir))
 
     results = await run_parallel(parallel_tasks)
 
-    # ── Parse results ─────────────────────────
-    idx          = 0
-    port_results = {}
-    fuzz_results = {}
+    tech_results     = results[0] if not isinstance(results[0], Exception) else {}
+    waf_results      = results[1] if not isinstance(results[1], Exception) else {}
+    js_results       = results[2] if not isinstance(results[2], Exception) else {}
+    cors_results     = results[3] if not isinstance(results[3], Exception) else {}
+
+    idx              = 4
+    port_results     = {}
+    fuzz_results     = {}
     takeover_results = {}
 
     if cfg["run_ports"]:
         port_results = results[idx] if not isinstance(results[idx], Exception) else {}
         idx += 1
-
-    tech_results  = results[idx]     if not isinstance(results[idx],     Exception) else {}
-    waf_results   = results[idx + 1] if not isinstance(results[idx + 1], Exception) else {}
-    js_results    = results[idx + 2] if not isinstance(results[idx + 2], Exception) else {}
-    cors_results  = results[idx + 3] if not isinstance(results[idx + 3], Exception) else {}
-    idx += 4
-
     if cfg["run_fuzz"]:
         fuzz_results = results[idx] if not isinstance(results[idx], Exception) else {}
         idx += 1
@@ -229,15 +221,14 @@ async def _scan(target, output, mode="active"):
     logger.metric("parallel_recon", (time.time() - t0) * 1000,
                   sum(len(v) for v in port_results.values()))
 
-    console.print()
-    console.print(f"  [dim]{'─' * 40}[/dim]")
-    console.print()
-    success(f"Ports       [bold cyan]{sum(len(v) for v in port_results.values())}[/bold cyan]  open")
-    success(f"JS Secrets  [bold cyan]{sum(len(v) for v in js_results.values())}[/bold cyan]  detected")
-    success(f"CORS Issues [bold cyan]{sum(len(v) for v in cors_results.values())}[/bold cyan]  found")
-    console.print()
+    blank()
+    divider()
+    blank()
+    success(f"Open Ports   →  [cyan]{sum(len(v) for v in port_results.values())}[/cyan]  open")
+    success(f"JS Secrets   →  [cyan]{sum(len(v) for v in js_results.values())}[/cyan]  detected")
+    success(f"CORS Issues  →  [cyan]{sum(len(v) for v in cors_results.values())}[/cyan]  found")
+    blank()
 
-    # Save findings
     for host, ports in port_results.items():
         for port in ports:
             save_finding(scan_record, "portscan", "info",
@@ -258,9 +249,9 @@ async def _scan(target, output, mode="active"):
                 description=f.get("acao", ""),
                 data=f)
 
-    # ──────────────────────────────────────────
-    # Phase 4: Vulnerability Scanning
-    # ──────────────────────────────────────────
+    # ──────────────────────────────────────────────────
+    # Phase 4 : Vulnerability Scanning
+    # ──────────────────────────────────────────────────
     phase("4", "Vulnerability Scanning")
 
     vuln_results = {}
@@ -269,12 +260,12 @@ async def _scan(target, output, mode="active"):
     total_cves   = 0
 
     if cfg["run_nuclei"]:
-        info(f"Modules: nuclei [{mode}] · cve_lookup")
-        console.print()
+        info("Modules  →  nuclei · cve_lookup")
+        blank()
 
-        t0 = time.time()
+        t0       = time.time()
         vuln_cve = await run_parallel([
-            run_async(run_nuclei,     live_hosts, target, raw_dir, temp_dir, mode),
+            run_async(run_nuclei,     live_hosts, target, raw_dir, temp_dir),
             run_async(run_cve_lookup, tech_results, port_results, target, raw_dir),
         ])
 
@@ -286,12 +277,14 @@ async def _scan(target, output, mode="active"):
         logger.metric("vuln_scan", (time.time() - t0) * 1000, total_vulns)
         logger.info("cve_lookup", "lookup_complete", {"cves_found": total_cves})
 
-        console.print()
-        console.print(f"  [dim]{'─' * 40}[/dim]")
-        console.print()
-        success(f"Vulns Found  [bold {'red' if total_vulns > 0 else 'dim'}]{total_vulns}[/]")
-        success(f"CVEs Found   [bold {'yellow' if total_cves > 0 else 'dim'}]{total_cves}[/]")
-        console.print()
+        blank()
+        divider()
+        blank()
+        vuln_color = "red"    if total_vulns > 0 else "dim"
+        cve_color  = "yellow" if total_cves  > 0 else "dim"
+        success(f"Vulns Found  →  [{vuln_color}]{total_vulns}[/{vuln_color}]  nuclei")
+        success(f"CVEs Found   →  [{cve_color}]{total_cves}[/{cve_color}]  mapped")
+        blank()
 
         for sev, vulns in vuln_results.items():
             for v in vulns:
@@ -307,12 +300,12 @@ async def _scan(target, output, mode="active"):
                     description=cve.get("description", ""),
                     data=cve)
     else:
-        info(f"Vulnerability scanning skipped in {mode} mode")
-        console.print()
+        warn(f"Skipped in [{mode}] mode")
+        blank()
 
-    # ──────────────────────────────────────────
-    # Phase 4.5: Risk Correlation Engine
-    # ──────────────────────────────────────────
+    # ──────────────────────────────────────────────────
+    # Phase 4.5 : Risk Correlation & Attack Chains
+    # ──────────────────────────────────────────────────
     phase("4.5", "Risk Correlation & Attack Chains")
     t0 = time.time()
 
@@ -336,11 +329,11 @@ async def _scan(target, output, mode="active"):
     })
 
     info(f"Analyzed [bold]{len(all_findings)}[/bold] findings across [bold]{len(risk_chains)}[/bold] hosts")
-    console.print()
+    blank()
 
     # Top risk chains
-    console.print(f"  [bold white]Top Risk Hosts:[/bold white]")
-    console.print()
+    console.print(f"  [bold white]Top Risk Hosts[/bold white]")
+    blank()
     for chain in risk_chains[:3]:
         if chain.risk_score >= 7.0:
             color = "bold red"
@@ -349,30 +342,30 @@ async def _scan(target, output, mode="active"):
             color = "yellow"
             icon  = "🟡"
         else:
-            color = "dim green"
+            color = "dim white"
             icon  = "🟢"
         console.print(f"  {icon}  [{color}]{chain.host}[/]")
-        console.print(f"      [dim]Score : {chain.risk_score}   Flags : {', '.join(chain.modifiers_applied)}[/dim]")
-        console.print(f"      [dim]{chain.recommendation}[/dim]")
-        console.print()
+        console.print(f"     [dim]Score   {chain.risk_score}  ·  {', '.join(chain.modifiers_applied)}[/dim]")
+        console.print(f"     [dim]{chain.recommendation}[/dim]")
+        blank()
 
     # Exploitable paths
     exploitable = [p for p in attack_paths if p.exploitable]
-    console.print()
-    console.print(f"  [dim]{'─' * 40}[/dim]")
-    console.print()
+    divider()
+    blank()
 
     if exploitable:
-        console.print(f"  [bold red]⚠   {len(exploitable)} EXPLOITABLE PATH(S) DETECTED[/bold red]")
-        console.print()
+        console.print(f"  [bold red]⚠  {len(exploitable)} EXPLOITABLE PATH(S) DETECTED[/bold red]")
+        blank()
         for p in exploitable[:3]:
-            console.print(f"  [bold red]  ►  {p.host}[/bold red]")
-            console.print(f"      [dim]Chain :[/dim]  {' → '.join(p.steps)}")
-            console.print(f"      [dim]Impact:[/dim]  {p.impact}")
-            console.print(f"      [dim]Score :[/dim]  {p.risk_score}")
-            console.print()
+            console.print(f"  [red]▶  {p.host}[/red]")
+            console.print(f"     [dim]Chain   {' → '.join(p.steps)}[/dim]")
+            console.print(f"     [dim]Impact  {p.impact}[/dim]")
+            console.print(f"     [dim]Score   {p.risk_score}[/dim]")
+            blank()
     else:
         info("No directly exploitable paths found")
+        blank()
 
     # Save risk chains + attack paths
     risk_file = f"{raw_dir}/risk_chains.json"
@@ -395,11 +388,11 @@ async def _scan(target, output, mode="active"):
                 "exploitable": p.exploitable
             } for p in attack_paths]
         }, f, indent=2)
-    success(f"Risk chains + attack paths saved → {risk_file}")
+    success(f"Risk chains saved  →  {risk_file}")
 
-    # ──────────────────────────────────────────
-    # Phase 5: Save & Report
-    # ──────────────────────────────────────────
+    # ──────────────────────────────────────────────────
+    # Phase 5 : Saving Results & Generating Reports
+    # ──────────────────────────────────────────────────
     phase("5", "Saving Results & Generating Reports")
 
     complete_scan(scan_record)
@@ -425,36 +418,47 @@ async def _scan(target, output, mode="active"):
         "top_risk":    risk_chains[0].risk_score if risk_chains else 0.0
     })
 
-    # ── Final Summary ──────────────────────────
-    console.print()
+    # ── Final Summary ──────────────────────────────────
+    blank()
     console.print(Rule(characters="─", style="red"))
-    console.print()
-    console.print("  [bold red]SCAN COMPLETE  🐰[/bold red]")
-    console.print()
+    blank()
+    console.print("  [bold red]SCAN COMPLETE[/bold red]  [dim]🐰  BugzBunny v2.1.0[/dim]")
+    blank()
+    divider()
+    blank()
 
-    summary = Table.grid(padding=(0, 3))
-    summary.add_column(style="bold white", justify="right")
-    summary.add_column(style="bold cyan",  justify="left")
-    summary.add_column(style="dim",        justify="left")
+    # Rich Table for clean alignment
+    table = Table(
+        show_header  = False,
+        box          = None,
+        padding      = (0, 2),
+        show_edge    = False,
+        show_footer  = False,
+    )
+    table.add_column(style="dim",       width=14, justify="left")
+    table.add_column(style="bold cyan", width=36, justify="left")
+    table.add_column(style="dim",       width=12, justify="left")
 
-    summary.add_row("Target",      target,                                            "")
-    summary.add_row("Mode",        mode.upper(),                                      "")
-    summary.add_row("Subdomains",  str(len(subdomains)),                              "discovered")
-    summary.add_row("Live Hosts",  str(len(live_hosts)),                              "responding")
-    summary.add_row("Open Ports",  str(sum(len(v) for v in port_results.values())),   "exposed")
-    summary.add_row("JS Secrets",  str(sum(len(v) for v in js_results.values())),     "detected")
-    summary.add_row("CORS Issues", str(sum(len(v) for v in cors_results.values())),   "found")
-    summary.add_row("Vulns Found", str(total_vulns),                                  "nuclei")
-    summary.add_row("CVEs Found",  str(total_cves),                                   "mapped")
-    summary.add_row("Risk Score",  str(risk_chains[0].risk_score if risk_chains else 0.0), "/ 10.0")
-    summary.add_row("Exploitable", str(len(exploitable)),                             "paths")
-    summary.add_row("Log File",    logger.log_file,                                   "")
-    summary.add_row("Report",      f"{output_dir}/{target}_report.html",              "")
+    table.add_row("Target",      target,                                                   "")
+    table.add_row("Mode",        mode.upper(),                                             cfg["description"])
+    table.add_row("─" * 12,      "",                                                       "")
+    table.add_row("Subdomains",  str(len(subdomains)),                                     "discovered")
+    table.add_row("Live Hosts",  str(len(live_hosts)),                                     "responding")
+    table.add_row("Open Ports",  str(sum(len(v) for v in port_results.values())),          "exposed")
+    table.add_row("JS Secrets",  str(sum(len(v) for v in js_results.values())),            "detected")
+    table.add_row("CORS Issues", str(sum(len(v) for v in cors_results.values())),          "found")
+    table.add_row("Vulns Found", str(total_vulns),                                         "nuclei")
+    table.add_row("CVEs Found",  str(total_cves),                                          "mapped")
+    table.add_row("Risk Score",  str(risk_chains[0].risk_score if risk_chains else 0.0),   "/ 10.0")
+    table.add_row("Exploitable", str(len(exploitable)),                                    "paths")
+    table.add_row("─" * 12,      "",                                                       "")
+    table.add_row("Report",      f"{output_dir}/{target}_report.html",                     "")
+    table.add_row("Log",         logger.log_file,                                          "")
 
-    console.print(summary, justify="center")
-    console.print()
+    console.print(table)
+    blank()
     console.print(Rule(characters="─", style="red"))
-    console.print()
+    blank()
 
 if __name__ == '__main__':
     cli()
