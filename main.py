@@ -349,7 +349,7 @@ async def _scan(target, output, mode="active"):
         js_results   = js_results,
         cors_results = cors_results,
         waf_results  = waf_results,
-        live_hosts   = live_hosts        # ← KEY FIX: CVEs assigned to real hosts
+        live_hosts   = live_hosts
     )
 
     risk_chains, attack_paths = RiskEngine(all_findings).run()
@@ -389,8 +389,11 @@ async def _scan(target, output, mode="active"):
         console.print(f"  [bold red]⚠  {len(exploitable)} EXPLOITABLE PATH(S) DETECTED[/bold red]")
         blank()
         for p in exploitable[:3]:
+            # Truncate chain display to 6 steps max
+            display_steps = p.steps[:6]
+            suffix = f" → (+{len(p.steps) - 6} more)" if len(p.steps) > 6 else ""
             console.print(f"  [red]▶  {p.host}[/red]")
-            console.print(f"     [dim]Chain   {' → '.join(p.steps)}[/dim]")
+            console.print(f"     [dim]Chain   {' → '.join(display_steps)}{suffix}[/dim]")
             console.print(f"     [dim]Impact  {p.impact}[/dim]")
             console.print(f"     [dim]Score   {p.risk_score}[/dim]")
             blank()

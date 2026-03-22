@@ -58,22 +58,20 @@ class RiskEngine:
         applied   = []
         mod_score = 0.0
 
-        types      = [f.finding_type for f in host_findings]
-        ports      = [f.port for f in host_findings if f.port]
+        types     = [f.finding_type for f in host_findings]
+        ports     = [f.port for f in host_findings if f.port]
 
-        has_waf    = any(
+        has_waf   = any(
             f.finding_type == "waf" and f.metadata.get("protected", False)
             for f in host_findings
         )
-        no_waf     = any(
+        no_waf    = any(
             f.finding_type == "waf" and not f.metadata.get("protected", False)
             for f in host_findings
         )
-        has_secret = "secret" in types
-        has_cve    = "cve" in types
-
-        # FIX 4: split CORS with creds vs wildcard
-        has_cors_creds = any(
+        has_secret        = "secret" in types
+        has_cve           = "cve" in types
+        has_cors_creds    = any(
             f.finding_type == "cors" and f.metadata.get("credentials", False)
             for f in host_findings
         )
@@ -81,7 +79,6 @@ class RiskEngine:
             f.finding_type == "cors" and not f.metadata.get("credentials", False)
             for f in host_findings
         )
-
         low_conf = any(f.confidence < 0.5 for f in host_findings)
 
         if no_waf:
@@ -139,17 +136,33 @@ class RiskEngine:
         steps        = []
         impact_parts = []
 
-        for f in host_findings:
+        # ── Separate and prioritize finding types ─────
+        port_findings  = [f for f in host_findings if f.finding_type == "port"]
+        cve_findings   = sorted(
+            [f for f in host_findings if f.finding_type == "cve"],
+            key=lambda x: x.confidence,
+            reverse=True
+        )[:3]  # top 3 CVEs by confidence only
+        other_findings = [f for f in host_findings
+                          if f.finding_type not in ("port", "cve")]
+
+        # Build steps: ports first → top CVEs → everything else
+        for f in port_findings + cve_findings + other_findings:
             if f.finding_type == "port":
                 port_num = f.port or "unknown"
                 steps.append(f"open_port:{port_num}")
                 impact_parts.append(f"open port {port_num}")
+
             elif f.finding_type == "vulnerability":
                 steps.append(f"vuln:{f.title}")
                 impact_parts.append(f"vulnerability: {f.title}")
+
             elif f.finding_type == "cve":
                 steps.append(f"cve:{f.title}")
-                impact_parts.append(f"known CVE: {f.title}")
+                impact_parts.append(
+                    f"CVE: {f.title} (score: {f.metadata.get('score', 'N/A')})"
+                )
+
             elif f.finding_type == "waf":
                 protected = f.metadata.get("protected", False)
                 if protected:
@@ -158,6 +171,7 @@ class RiskEngine:
                 else:
                     steps.append("no_waf")
                     impact_parts.append("no WAF protection")
+
             elif f.finding_type == "cors":
                 has_creds = f.metadata.get("credentials", False)
                 if has_creds:
@@ -166,36 +180,39 @@ class RiskEngine:
                 else:
                     steps.append("cors:wildcard")
                     impact_parts.append("CORS wildcard misconfiguration")
+
             elif f.finding_type == "secret":
                 steps.append(f"secret:{f.title}")
                 impact_parts.append(f"exposed secret: {f.title}")
+
             elif f.finding_type == "tech":
                 tech_name = f.metadata.get("name", f.title)
                 steps.append(f"tech:{tech_name}")
 
-        if score >= 9.0:
-            severity = "critical"
-        elif score >= 7.0:
-            severity = "high"
-        elif score >= 5.0:
-            severity = "medium"
-        else:
-            severity = "low"
+        # ── Severity ───────────────────────────────────
+        if score >= 9.0:   severity = "critical"
+        elif score >= 7.0: severity = "high"
+        elif score >= 5.0: severity = "medium"
+        else:              severity = "low"
 
-        types   = [f.finding_type for f in host_findings]
+        # ── Exploitability ─────────────────────────────
+        types    = [f.finding_type for f in host_findings]
         has_port = "port" in types
         has_cve  = "cve" in types or "vulnerability" in types
         has_sec  = "secret" in types
-
-        # FIX 4: any CORS now counts
         has_cors = "cors" in types
 
-        # FIX 3: WAF reduces score but does NOT block exploitable
-        # exploitable = has port + has finding + score meaningful
+        # WAF reduces score but does NOT block exploitable
         exploitable = has_port and (has_cve or has_sec or has_cors) and score >= 4.0
 
-        impact = f"Host {host} exposed with: {', '.join(impact_parts)}" if impact_parts \
-                 else f"Host {host} has potential attack surface"
+        # ── Impact summary — top 5 items only ─────────
+        if impact_parts:
+            summary = ", ".join(impact_parts[:5])
+            if len(impact_parts) > 5:
+                summary += f" (+{len(impact_parts) - 5} more findings)"
+            impact = f"Host {host} exposed with: {summary}"
+        else:
+            impact = f"Host {host} has potential attack surface"
 
         return AttackPath(
             chain_id    = str(uuid.uuid4())[:8],
