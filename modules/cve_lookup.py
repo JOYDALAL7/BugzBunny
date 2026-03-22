@@ -6,8 +6,8 @@ from rich.console import Console
 
 console = Console()
 
-NVD_API             = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-VALID_TECH_PATTERN  = re.compile(r'^[a-zA-Z][a-zA-Z0-9\-\_\.]+$')
+NVD_API            = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+VALID_TECH_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z0-9\-\_\.]+$')
 
 BLACKLIST = {
     "http", "https", "www", "unknown", "frame", "title", "script",
@@ -24,10 +24,11 @@ BLACKLIST = {
     "cache-control", "access-control", "metagenerator",
     "meta-refresh-redirect", "httpserver", "amazon-cloudfront",
     "google-analytics", "google-tag-manager", "open-graph",
-    "twitter-cards", "schema-org", "json-ld", "microdata"
+    "twitter-cards", "schema-org", "json-ld", "microdata",
+    "ubuntu", "linux", "windows", "reserved", "zz"
 }
 
-COMMON_TLDS = [".com", ".org", ".net", ".io", ".gov", ".edu", ".co", ".hackerone"]
+COMMON_TLDS = [".com", ".org", ".net", ".io", ".gov", ".edu", ".co"]
 
 KNOWN_TECHS = {
     "nginx", "apache", "iis", "tomcat", "wordpress", "drupal", "joomla",
@@ -41,25 +42,47 @@ KNOWN_TECHS = {
     "spring", "log4j", "jackson", "lodash", "moment",
     "axios", "express", "koa", "hapi", "fastify",
     "sqlite", "mariadb", "cassandra", "memcached",
-    "rabbitmq", "kafka", "haproxy", "traefik"
+    "rabbitmq", "kafka", "haproxy", "traefik",
+    "litespeed", "openresty", "asp.net", "iis",
+    "next.js", "vue.js", "bootstrap"
 }
 
-# ── Mode-based config ──────────────────────────────────
+# Fuzzy normalization map
+TECH_NORMALIZE = {
+    "httpserver":    "Apache",
+    "apacheserver":  "Apache",
+    "apache2":       "Apache",
+    "nginxserver":   "nginx",
+    "iisserver":     "IIS",
+    "microsoftiis":  "IIS",
+    "php":           "PHP",
+    "asp.net":       "ASP.NET",
+    "jquery":        "jQuery",
+    "wordpressorg":  "WordPress",
+    "next.js":       "Next.js",
+    "vue.js":        "Vue",
+    "litespeed":     "LiteSpeed",
+    "openresty":     "nginx",
+}
+
 MODE_CONFIG = {
-    "passive":    {"max_techs": 3,  "results_per_page": 3, "sleep": 2.0},
-    "stealth":    {"max_techs": 5,  "results_per_page": 3, "sleep": 2.0},
-    "active":     {"max_techs": 10, "results_per_page": 5, "sleep": 1.0},
+    "passive":    {"max_techs": 3,  "results_per_page": 3,  "sleep": 2.0},
+    "stealth":    {"max_techs": 5,  "results_per_page": 3,  "sleep": 2.0},
+    "active":     {"max_techs": 10, "results_per_page": 5,  "sleep": 1.0},
     "aggressive": {"max_techs": 20, "results_per_page": 10, "sleep": 0.5},
 }
+
+def normalize_tech(name: str) -> str:
+    """Normalize tech name for better CVE matching"""
+    n = name.strip().lower()
+    return TECH_NORMALIZE.get(n, name.strip())
 
 def is_valid_tech(name: str) -> bool:
     """Filter out garbage technology names"""
     name_lower = name.strip().lower()
-    if not name_lower or len(name_lower) < 3:
+    if not name_lower or len(name_lower) < 2:
         return False
     if name_lower in BLACKLIST:
-        return False
-    if "-" in name_lower and name_lower not in KNOWN_TECHS:
         return False
     if not VALID_TECH_PATTERN.match(name_lower):
         return False
@@ -67,11 +90,13 @@ def is_valid_tech(name: str) -> bool:
         return False
     if "." in name_lower and any(tld in name_lower for tld in COMMON_TLDS):
         return False
-    if re.search(r'\.\d+', name_lower):
-        return False
-    if name_lower not in KNOWN_TECHS:
-        return False
-    return True
+    # Accept if in known techs OR if it looks like a real tech name
+    if name_lower in KNOWN_TECHS:
+        return True
+    # Accept short alphanumeric names that could be real techs
+    if re.match(r'^[a-zA-Z][a-zA-Z0-9]{1,15}$', name_lower):
+        return True
+    return False
 
 def lookup_cve(service: str, results_per_page: int = 5) -> list:
     """Lookup CVEs for a given service/technology"""
@@ -118,7 +143,7 @@ def lookup_cve(service: str, results_per_page: int = 5) -> list:
 
 def run_cve_lookup(tech_results: dict, port_results: dict, target: str,
                    raw_dir: str, mode: str = "active") -> dict:
-    """Run CVE lookup — mode aware"""
+    """Run CVE lookup — mode aware with fuzzy matching"""
 
     cfg = MODE_CONFIG.get(mode, MODE_CONFIG["active"])
     console.print(f"[cyan][*] Running CVE lookup [{mode}]...[/]")
@@ -126,38 +151,40 @@ def run_cve_lookup(tech_results: dict, port_results: dict, target: str,
     all_cves     = {}
     technologies = set()
 
-    # Collect techs from fingerprint results
+    # Collect from fingerprint
     for host, techs in tech_results.items():
         for tech in techs:
             name    = tech.get("name", "").strip()
             version = tech.get("version", "").strip()
             if is_valid_tech(name):
+                normalized = normalize_tech(name)
                 if version and re.match(r'^\d[\d\.]+$', version):
-                    technologies.add(f"{name} {version}")
+                    technologies.add(f"{normalized} {version}")
                 else:
-                    technologies.add(name)
+                    technologies.add(normalized)
 
-    # Collect services from port scan
+    # Collect from port scan services
     for host, ports in port_results.items():
         for port in ports:
             service = port.get("service", "").strip()
-            if is_valid_tech(service):
-                technologies.add(service)
+            if service and service not in ("tcpwrapped", "unknown", ""):
+                normalized = normalize_tech(service)
+                if is_valid_tech(normalized):
+                    technologies.add(normalized)
 
-    # Limit by mode
     tech_list = list(technologies)[:cfg["max_techs"]]
 
+    if not tech_list:
+        console.print("[yellow][~] No valid technologies found for CVE lookup[/]")
+    
     for tech in tech_list:
         console.print(f"[cyan][*] Looking up CVEs for: {tech}[/]")
         cves = lookup_cve(tech, cfg["results_per_page"])
-
         if cves:
             all_cves[tech] = cves
             console.print(f"[yellow]  [!] {tech} → {len(cves)} CVEs found[/]")
-
         time.sleep(cfg["sleep"])
 
-    # Save to raw dir
     out_file = f"{raw_dir}/cves.json"
     with open(out_file, "w") as f:
         json.dump({"target": target, "mode": mode, "cves": all_cves}, f, indent=2)

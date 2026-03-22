@@ -60,7 +60,6 @@ SCAN_MODES = {
     },
 }
 
-# ── CLI helpers ────────────────────────────────────────
 def phase(number: str, title: str):
     console.print()
     console.print()
@@ -83,27 +82,89 @@ def divider():
 def blank():
     console.print()
 
-# ── CLI ────────────────────────────────────────────────
 @click.group()
 def cli():
-    """BugzBunny - Hop. Hunt. Hack."""
+    """
+    \b
+    BugzBunny — Async Security Intelligence Platform
+    Hop. Hunt. Hack. 🐰
+    \b
+    USAGE:
+      python main.py scan --target <domain>
+      python main.py scan --target <domain> --mode <mode>
+    \b
+    EXAMPLES:
+      python main.py scan --target hackerone.com
+      python main.py scan --target testphp.vulnweb.com --mode active
+      python main.py scan --target bugcrowd.com --mode stealth
+    \b
+    SCAN MODES:
+      passive     Subdomain + live hosts + fingerprint only (no active scanning)
+      stealth     Low-noise scan — ports, nuclei, takeover. No fuzzing.
+      active      Full scan — all 16+ modules (default)
+      aggressive  Maximum coverage — all modules, high rate limits
+    \b
+    PIPELINE:
+      Phase 1    →  Subdomain Enumeration
+      Phase 2    →  Live Host Detection
+      Phase 3    →  Parallel Recon (nmap, ffuf, whatweb, wafw00f, subjack, js_secrets, cors)
+      Phase 4    →  Vulnerability Scanning (nuclei + CVE lookup)
+      Phase 4.5  →  Risk Correlation + Attack Chain Engine
+      Phase 5    →  Reports (HTML + PDF + Diff + Database)
+    \b
+    OUTPUT:
+      reports/<target>/
+        ├── <target>_report.html    HTML report with attack chains
+        ├── <target>_report.pdf     Professional A4 PDF
+        ├── bugzbunny.db            SQLite database (10 tables)
+        ├── diff_report.json        Changes since last scan
+        ├── logs/<scan_id>.log      Structured JSON telemetry
+        └── raw/
+            ├── risk_chains.json    Attack chains + exploitable paths
+            ├── vulnerabilities.json
+            ├── cves.json
+            └── ...
+    """
     show_banner()
 
 @cli.command()
-@click.option('--target', '-t', required=True,     help='Target domain to scan')
-@click.option('--output', '-o', default='reports', help='Output directory  (default: reports)')
+@click.option('--target', '-t', required=True,
+              help='Target domain to scan  (e.g. hackerone.com)')
+@click.option('--output', '-o', default='reports',
+              help='Output directory       (default: reports)')
 @click.option('--mode',   '-m',
               default='active',
               type=click.Choice(['passive', 'stealth', 'active', 'aggressive'],
                                 case_sensitive=False),
-              help='Scan mode       (default: active)')
+              help='Scan mode              (default: active)')
 def scan(target, output, mode):
-    """Run full recon + intelligence pipeline on a target."""
+    """
+    \b
+    Run full recon + intelligence pipeline on a target.
+    \b
+    SCAN MODES:
+      passive     No active scanning. Subdomain + live hosts + fingerprint only.
+      stealth     Low-noise. Ports + nuclei + takeover. No fuzzing.
+      active      Full scan. All 16+ modules. Balanced speed. (default)
+      aggressive  Maximum coverage. All modules. High rate limits.
+    \b
+    EXAMPLES:
+      python main.py scan --target hackerone.com
+      python main.py scan --target hackerone.com --mode stealth
+      python main.py scan --target hackerone.com --output /tmp/results
+    \b
+    MODULES (active mode):
+      subfinder   nmap      ffuf      whatweb   wafw00f
+      subjack     nuclei    nvd-api   js-secrets  cors
+    \b
+    INTELLIGENCE:
+      Risk Engine   CVSS-style scoring 0-10 per host
+      Attack Chains Step-by-step exploitation paths
+      Exploitable   Hosts with port + CVE/secret/CORS + score >= 4.0
+    """
     asyncio.run(_scan(target, output, mode))
 
-# ── Pipeline ───────────────────────────────────────────
 async def _scan(target, output, mode="active"):
-
     cfg = SCAN_MODES[mode]
 
     output_dir = os.path.join(output, target)
@@ -120,7 +181,6 @@ async def _scan(target, output, mode="active"):
     db_path     = init_db(output_dir)
     scan_record = create_scan(target)
 
-    # ── Scan header ────────────────────────────────────
     blank()
     console.print(Rule(characters="─", style="red"))
     blank()
@@ -132,30 +192,22 @@ async def _scan(target, output, mode="active"):
 
     logger.info("scanner", "pipeline_started", {"output_dir": output_dir, "mode": mode})
 
-    # ──────────────────────────────────────────────────
-    # Phase 1 : Subdomain Enumeration
-    # ──────────────────────────────────────────────────
+    # ── Phase 1 ────────────────────────────────────────
     phase("1", "Subdomain Enumeration")
     t0 = time.time()
-
     subdomains = await run_async(run_subfinder, target, raw_dir, temp_dir)
     if not subdomains:
         warn("No subdomains found — using target directly")
         subdomains = [target]
     else:
         success(f"Found [cyan]{len(subdomains)}[/cyan] subdomains")
-
     for sub in subdomains:
         save_finding(scan_record, "subdomain", "info", sub, data={"subdomain": sub})
-
     logger.metric("subdomain", (time.time() - t0) * 1000, len(subdomains))
 
-    # ──────────────────────────────────────────────────
-    # Phase 2 : Live Host Detection
-    # ──────────────────────────────────────────────────
+    # ── Phase 2 ────────────────────────────────────────
     phase("2", "Live Host Detection")
     t0 = time.time()
-
     live_hosts = await run_async(run_httpx, subdomains, target, raw_dir, temp_dir)
     if not live_hosts:
         warn("No live hosts found — using target directly")
@@ -163,27 +215,20 @@ async def _scan(target, output, mode="active"):
         logger.warning("livehosts", "no_hosts_found", {"fallback": f"http://{target}"})
     else:
         success(f"Found [cyan]{len(live_hosts)}[/cyan] live hosts")
-
     for host in live_hosts:
         save_finding(scan_record, "livehosts", "info", host, data={"url": host})
-
     logger.metric("livehosts", (time.time() - t0) * 1000, len(live_hosts))
 
-    # ──────────────────────────────────────────────────
-    # Phase 3 : Parallel Recon
-    # ──────────────────────────────────────────────────
+    # ── Phase 3 ────────────────────────────────────────
     phase("3", "Parallel Recon")
-
     active_mods = ["whatweb", "wafw00f", "js_secrets", "cors"]
     if cfg["run_ports"]:    active_mods.append("nmap")
     if cfg["run_fuzz"]:     active_mods.append("ffuf")
     if cfg["run_takeover"]: active_mods.append("subjack")
-
     info(f"Modules  →  {' · '.join(active_mods)}")
     blank()
 
     t0 = time.time()
-
     parallel_tasks = [
         run_async(run_whatweb,    live_hosts, target, raw_dir),
         run_async(run_wafw00f,    live_hosts, target, raw_dir),
@@ -234,14 +279,12 @@ async def _scan(target, output, mode="active"):
             save_finding(scan_record, "portscan", "info",
                 f"{host}:{port['port']}/{port['service']}",
                 data={"host": host, "port": port["port"], "service": port["service"]})
-
     for host, secrets in js_results.items():
         for secret in secrets:
             save_finding(scan_record, "js_secrets", "high",
                 secret.get("type", "unknown"),
                 description=secret.get("match", ""),
                 data=secret)
-
     for host, findings in cors_results.items():
         for f in findings:
             save_finding(scan_record, "cors", f.get("severity", "high"),
@@ -249,11 +292,8 @@ async def _scan(target, output, mode="active"):
                 description=f.get("acao", ""),
                 data=f)
 
-    # ──────────────────────────────────────────────────
-    # Phase 4 : Vulnerability Scanning
-    # ──────────────────────────────────────────────────
+    # ── Phase 4 ────────────────────────────────────────
     phase("4", "Vulnerability Scanning")
-
     vuln_results = {}
     cve_results  = {}
     total_vulns  = 0
@@ -262,21 +302,17 @@ async def _scan(target, output, mode="active"):
     if cfg["run_nuclei"]:
         info("Modules  →  nuclei · cve_lookup")
         blank()
-
         t0       = time.time()
         vuln_cve = await run_parallel([
             run_async(run_nuclei,     live_hosts, target, raw_dir, temp_dir),
             run_async(run_cve_lookup, tech_results, port_results, target, raw_dir),
         ])
-
         vuln_results = vuln_cve[0] if not isinstance(vuln_cve[0], Exception) else {}
         cve_results  = vuln_cve[1] if not isinstance(vuln_cve[1], Exception) else {}
         total_vulns  = sum(len(v) for v in vuln_results.values())
         total_cves   = sum(len(v) for v in cve_results.values())
-
         logger.metric("vuln_scan", (time.time() - t0) * 1000, total_vulns)
         logger.info("cve_lookup", "lookup_complete", {"cves_found": total_cves})
-
         blank()
         divider()
         blank()
@@ -285,14 +321,12 @@ async def _scan(target, output, mode="active"):
         success(f"Vulns Found  →  [{vuln_color}]{total_vulns}[/{vuln_color}]  nuclei")
         success(f"CVEs Found   →  [{cve_color}]{total_cves}[/{cve_color}]  mapped")
         blank()
-
         for sev, vulns in vuln_results.items():
             for v in vulns:
                 save_finding(scan_record, "nuclei", sev,
                     v.get("name", "unknown"),
                     description=v.get("matched", ""),
                     data=v)
-
         for tech, cves in cve_results.items():
             for cve in cves:
                 save_finding(scan_record, "cve", cve.get("severity", "info").lower(),
@@ -303,9 +337,7 @@ async def _scan(target, output, mode="active"):
         warn(f"Skipped in [{mode}] mode")
         blank()
 
-    # ──────────────────────────────────────────────────
-    # Phase 4.5 : Risk Correlation & Attack Chains
-    # ──────────────────────────────────────────────────
+    # ── Phase 4.5 ──────────────────────────────────────
     phase("4.5", "Risk Correlation & Attack Chains")
     t0 = time.time()
 
@@ -316,7 +348,8 @@ async def _scan(target, output, mode="active"):
         cve_results  = cve_results,
         js_results   = js_results,
         cors_results = cors_results,
-        waf_results  = waf_results
+        waf_results  = waf_results,
+        live_hosts   = live_hosts        # ← KEY FIX: CVEs assigned to real hosts
     )
 
     risk_chains, attack_paths = RiskEngine(all_findings).run()
@@ -331,7 +364,6 @@ async def _scan(target, output, mode="active"):
     info(f"Analyzed [bold]{len(all_findings)}[/bold] findings across [bold]{len(risk_chains)}[/bold] hosts")
     blank()
 
-    # Top risk chains
     console.print(f"  [bold white]Top Risk Hosts[/bold white]")
     blank()
     for chain in risk_chains[:3]:
@@ -349,7 +381,6 @@ async def _scan(target, output, mode="active"):
         console.print(f"     [dim]{chain.recommendation}[/dim]")
         blank()
 
-    # Exploitable paths
     exploitable = [p for p in attack_paths if p.exploitable]
     divider()
     blank()
@@ -367,7 +398,6 @@ async def _scan(target, output, mode="active"):
         info("No directly exploitable paths found")
         blank()
 
-    # Save risk chains + attack paths
     risk_file = f"{raw_dir}/risk_chains.json"
     with open(risk_file, "w") as f:
         json.dump({
@@ -390,9 +420,7 @@ async def _scan(target, output, mode="active"):
         }, f, indent=2)
     success(f"Risk chains saved  →  {risk_file}")
 
-    # ──────────────────────────────────────────────────
-    # Phase 5 : Saving Results & Generating Reports
-    # ──────────────────────────────────────────────────
+    # ── Phase 5 ────────────────────────────────────────
     phase("5", "Saving Results & Generating Reports")
 
     complete_scan(scan_record)
@@ -418,7 +446,6 @@ async def _scan(target, output, mode="active"):
         "top_risk":    risk_chains[0].risk_score if risk_chains else 0.0
     })
 
-    # ── Final Summary ──────────────────────────────────
     blank()
     console.print(Rule(characters="─", style="red"))
     blank()
@@ -427,33 +454,32 @@ async def _scan(target, output, mode="active"):
     divider()
     blank()
 
-    # Rich Table for clean alignment
     table = Table(
-        show_header  = False,
-        box          = None,
-        padding      = (0, 2),
-        show_edge    = False,
-        show_footer  = False,
+        show_header = False,
+        box         = None,
+        padding     = (0, 2),
+        show_edge   = False,
+        show_footer = False,
     )
     table.add_column(style="dim",       width=14, justify="left")
     table.add_column(style="bold cyan", width=36, justify="left")
     table.add_column(style="dim",       width=12, justify="left")
 
-    table.add_row("Target",      target,                                                   "")
-    table.add_row("Mode",        mode.upper(),                                             cfg["description"])
-    table.add_row("─" * 12,      "",                                                       "")
-    table.add_row("Subdomains",  str(len(subdomains)),                                     "discovered")
-    table.add_row("Live Hosts",  str(len(live_hosts)),                                     "responding")
-    table.add_row("Open Ports",  str(sum(len(v) for v in port_results.values())),          "exposed")
-    table.add_row("JS Secrets",  str(sum(len(v) for v in js_results.values())),            "detected")
-    table.add_row("CORS Issues", str(sum(len(v) for v in cors_results.values())),          "found")
-    table.add_row("Vulns Found", str(total_vulns),                                         "nuclei")
-    table.add_row("CVEs Found",  str(total_cves),                                          "mapped")
-    table.add_row("Risk Score",  str(risk_chains[0].risk_score if risk_chains else 0.0),   "/ 10.0")
-    table.add_row("Exploitable", str(len(exploitable)),                                    "paths")
-    table.add_row("─" * 12,      "",                                                       "")
-    table.add_row("Report",      f"{output_dir}/{target}_report.html",                     "")
-    table.add_row("Log",         logger.log_file,                                          "")
+    table.add_row("Target",      target,                                                  "")
+    table.add_row("Mode",        mode.upper(),                                            cfg["description"])
+    table.add_row("─" * 12,      "",                                                      "")
+    table.add_row("Subdomains",  str(len(subdomains)),                                    "discovered")
+    table.add_row("Live Hosts",  str(len(live_hosts)),                                    "responding")
+    table.add_row("Open Ports",  str(sum(len(v) for v in port_results.values())),         "exposed")
+    table.add_row("JS Secrets",  str(sum(len(v) for v in js_results.values())),           "detected")
+    table.add_row("CORS Issues", str(sum(len(v) for v in cors_results.values())),         "found")
+    table.add_row("Vulns Found", str(total_vulns),                                        "nuclei")
+    table.add_row("CVEs Found",  str(total_cves),                                         "mapped")
+    table.add_row("Risk Score",  str(risk_chains[0].risk_score if risk_chains else 0.0),  "/ 10.0")
+    table.add_row("Exploitable", str(len(exploitable)),                                   "paths")
+    table.add_row("─" * 12,      "",                                                      "")
+    table.add_row("Report",      f"{output_dir}/{target}_report.html",                    "")
+    table.add_row("Log",         logger.log_file,                                         "")
 
     console.print(table)
     blank()

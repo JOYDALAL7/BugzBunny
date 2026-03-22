@@ -14,6 +14,7 @@ MODIFIERS = {
     "no_waf":          +2.0,
     "has_secret":      +3.0,
     "cors_with_creds": +3.5,
+    "cors_wildcard":   +1.5,
     "known_cve":       +2.5,
     "open_port_80":    +1.0,
     "open_port_443":   +0.5,
@@ -59,12 +60,29 @@ class RiskEngine:
 
         types      = [f.finding_type for f in host_findings]
         ports      = [f.port for f in host_findings if f.port]
-        has_waf    = any(f.finding_type == "waf" and f.metadata.get("protected", False) for f in host_findings)
-        no_waf     = any(f.finding_type == "waf" and not f.metadata.get("protected", False) for f in host_findings)
+
+        has_waf    = any(
+            f.finding_type == "waf" and f.metadata.get("protected", False)
+            for f in host_findings
+        )
+        no_waf     = any(
+            f.finding_type == "waf" and not f.metadata.get("protected", False)
+            for f in host_findings
+        )
         has_secret = "secret" in types
         has_cve    = "cve" in types
-        has_cors   = any(f.finding_type == "cors" and f.metadata.get("credentials", False) for f in host_findings)
-        low_conf   = any(f.confidence < 0.5 for f in host_findings)
+
+        # FIX 4: split CORS with creds vs wildcard
+        has_cors_creds = any(
+            f.finding_type == "cors" and f.metadata.get("credentials", False)
+            for f in host_findings
+        )
+        has_cors_wildcard = any(
+            f.finding_type == "cors" and not f.metadata.get("credentials", False)
+            for f in host_findings
+        )
+
+        low_conf = any(f.confidence < 0.5 for f in host_findings)
 
         if no_waf:
             applied.append("no_waf")
@@ -78,9 +96,12 @@ class RiskEngine:
         if has_cve:
             applied.append("known_cve")
             mod_score += MODIFIERS["known_cve"]
-        if has_cors:
+        if has_cors_creds:
             applied.append("cors_with_creds")
             mod_score += MODIFIERS["cors_with_creds"]
+        elif has_cors_wildcard:
+            applied.append("cors_wildcard")
+            mod_score += MODIFIERS["cors_wildcard"]
         if 80 in ports:
             applied.append("open_port_80")
             mod_score += MODIFIERS["open_port_80"]
@@ -96,7 +117,8 @@ class RiskEngine:
     def _calculate_score(self, host_findings: list, modifier_score: float) -> float:
         if not host_findings:
             return 0.0
-        scores     = [SEVERITY_WEIGHTS.get(f.severity, 0.0) * f.confidence for f in host_findings]
+        scores     = [SEVERITY_WEIGHTS.get(f.severity, 0.0) * f.confidence
+                      for f in host_findings]
         base_score = sum(scores) / len(scores)
         final      = base_score + modifier_score
         return round(min(10.0, max(0.0, final)), 2)
@@ -160,16 +182,17 @@ class RiskEngine:
         else:
             severity = "low"
 
-        types       = [f.finding_type for f in host_findings]
-        has_port    = "port" in types
-        has_cve     = "cve" in types or "vulnerability" in types
-        has_sec     = "secret" in types
-        has_cors    = "cors" in types
-        no_waf      = any(
-            f.finding_type == "waf" and not f.metadata.get("protected", False)
-            for f in host_findings
-        )
-        exploitable = has_port and (has_cve or has_sec or has_cors) and no_waf
+        types   = [f.finding_type for f in host_findings]
+        has_port = "port" in types
+        has_cve  = "cve" in types or "vulnerability" in types
+        has_sec  = "secret" in types
+
+        # FIX 4: any CORS now counts
+        has_cors = "cors" in types
+
+        # FIX 3: WAF reduces score but does NOT block exploitable
+        # exploitable = has port + has finding + score meaningful
+        exploitable = has_port and (has_cve or has_sec or has_cors) and score >= 4.0
 
         impact = f"Host {host} exposed with: {', '.join(impact_parts)}" if impact_parts \
                  else f"Host {host} has potential attack surface"
@@ -195,7 +218,6 @@ class RiskEngine:
             score                = self._calculate_score(host_findings, mod_score)
             recommendation       = self._generate_recommendation(score)
 
-            # Build attack chain
             chains.append(AttackChain(
                 host              = host,
                 risk_score        = score,
@@ -204,14 +226,10 @@ class RiskEngine:
                 recommendation    = recommendation
             ))
 
-            # Build attack path
             path = self.build_attack_paths(host, host_findings, score)
             attack_paths.append(path)
 
-        # Sort chains by risk score
         chains.sort(key=lambda x: x.risk_score, reverse=True)
-
-        # Sort paths: exploitable first, then by risk score
         attack_paths.sort(key=lambda x: (not x.exploitable, -x.risk_score))
 
         return chains, attack_paths
