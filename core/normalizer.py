@@ -17,26 +17,37 @@ class NormalizedFinding:
     timestamp:    datetime      = field(default_factory=datetime.now)
 
 
+def clean_host(host: str) -> str:
+    """Normalize host to http://hostname format for consistent matching"""
+    h = host.split()[0]  # strip IP suffix like (45.33.32.156)
+    if not h.startswith("http"):
+        h = f"http://{h}"
+    return h
+
+
 class Normalizer:
 
     def normalize_ports(self, port_results: dict) -> list:
+        """Normalize nmap port scan results"""
         findings = []
         for host, ports in port_results.items():
+            normalized = clean_host(host)
             for p in ports:
                 findings.append(NormalizedFinding(
-                    host         = host,
+                    host         = normalized,
                     module       = "portscan",
                     finding_type = "port",
                     title        = f"Open port {p['port']}/{p['service']}",
                     severity     = "info",
                     confidence   = 1.0,
-                    evidence     = f"{host}:{p['port']} ({p['service']})",
+                    evidence     = f"{normalized}:{p['port']} ({p['service']})",
                     port         = p["port"],
                     metadata     = {"service": p["service"]}
                 ))
         return findings
 
     def normalize_vulns(self, vuln_results: dict) -> list:
+        """Normalize nuclei vulnerability results"""
         findings = []
         severity_confidence = {
             "critical": 0.95,
@@ -47,7 +58,7 @@ class Normalizer:
         for sev, vulns in vuln_results.items():
             for v in vulns:
                 findings.append(NormalizedFinding(
-                    host         = v.get("host", ""),
+                    host         = clean_host(v.get("host", "")),
                     module       = "nuclei",
                     finding_type = "vulnerability",
                     title        = v.get("name", "Unknown"),
@@ -61,17 +72,11 @@ class Normalizer:
     def normalize_cves(self, cve_results: dict, live_hosts: list = []) -> list:
         """
         Normalize CVE lookup results.
-        KEY FIX: CVEs are keyed by tech name (e.g. 'Apache') but
-        must be assigned to real scanned hosts so risk engine can
-        correlate port + CVE on the same host.
+        CVEs are assigned to real scanned hosts (not tech names)
+        so risk engine can correlate port + CVE on the same host.
         """
-        findings = []
-
-        # Build a clean list of real hosts to assign CVEs to
-        # Use first live host as fallback if no better match
-        real_hosts = []
-        for h in live_hosts:
-            real_hosts.append(h.split()[0])
+        findings   = []
+        real_hosts = [clean_host(h) for h in live_hosts] if live_hosts else []
 
         for tech, cves in cve_results.items():
             for cve in cves:
@@ -90,10 +95,7 @@ class Normalizer:
                 else:
                     severity = "low"
 
-                # ── KEY FIX ──────────────────────────────────
-                # Assign CVE to real hosts, not tech name
-                # This allows risk engine to correlate:
-                # port(scanme.nmap.org) + cve(scanme.nmap.org)
+                # Assign CVE to real hosts so risk engine correlates correctly
                 hosts_to_assign = real_hosts if real_hosts else [tech]
 
                 for host in hosts_to_assign:
@@ -114,11 +116,12 @@ class Normalizer:
         return findings
 
     def normalize_secrets(self, js_results: dict) -> list:
+        """Normalize JS secrets results"""
         findings = []
         for host, secrets in js_results.items():
             for s in secrets:
                 findings.append(NormalizedFinding(
-                    host         = host,
+                    host         = clean_host(host),
                     module       = "js_secrets",
                     finding_type = "secret",
                     title        = s.get("type", "Unknown Secret"),
@@ -133,6 +136,7 @@ class Normalizer:
         return findings
 
     def normalize_cors(self, cors_results: dict) -> list:
+        """Normalize CORS misconfiguration results"""
         findings = []
         for host, issues in cors_results.items():
             for issue in issues:
@@ -140,7 +144,7 @@ class Normalizer:
                 severity   = "critical" if has_creds else "high"
                 confidence = 0.95 if has_creds else 0.85
                 findings.append(NormalizedFinding(
-                    host         = host,
+                    host         = clean_host(host),
                     module       = "cors",
                     finding_type = "cors",
                     title        = issue.get("issue", "CORS Misconfiguration"),
@@ -156,11 +160,13 @@ class Normalizer:
         return findings
 
     def normalize_waf(self, waf_results: dict) -> list:
+        """Normalize WAF detection results"""
         findings = []
         for host, waf in waf_results.items():
-            no_waf = "no waf" in waf.lower() if isinstance(waf, str) else True
+            normalized = clean_host(host)
+            no_waf     = "no waf" in waf.lower() if isinstance(waf, str) else True
             findings.append(NormalizedFinding(
-                host         = host,
+                host         = normalized,
                 module       = "waf",
                 finding_type = "waf",
                 title        = "No WAF Detected" if no_waf else f"WAF: {waf}",
